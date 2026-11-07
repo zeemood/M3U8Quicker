@@ -20,11 +20,15 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  cleanJableTitleFromUrl,
+  applyFilenameCleanupRules,
+  cleanDownloadUrlAfterFilenameCleanup,
+  deriveFilenameFromUrl,
+  resolveFilenameCleanupSourceUrl,
   type FileType,
   type CreateLiveRecordParams,
   type LiveProtocol,
 } from "../types";
+import type { FilenameCleanupRule } from "../types/settings";
 
 interface NewLiveRecordModalProps {
   open: boolean;
@@ -71,7 +75,13 @@ export function NewLiveRecordModal({
   const [submitting, setSubmitting] = useState(false);
   const [outputDir, setOutputDir] = useState("");
   const [filenameTouched, setFilenameTouched] = useState(false);
+  const [filenameCleanupRules, setFilenameCleanupRules] = useState<
+    FilenameCleanupRule[]
+  >([]);
   const splitEnabled = Form.useWatch("split_enabled", form) ?? false;
+  const watchedExtraHeaders = Form.useWatch("extra_headers", form) as
+    | string
+    | undefined;
 
   useEffect(() => {
     if (isOpen) {
@@ -83,19 +93,41 @@ export function NewLiveRecordModal({
       setFilenameTouched(false);
       form.resetFields();
       const initialProtocol: LiveProtocol = inferProtocolFromUrl(initialUrl ?? "");
-      const { url: cleanedUrl, filename: cleanedFilename } = cleanJableTitleFromUrl(
-        initialUrl ?? ""
-      );
-      const filename = initialFilename || cleanedFilename || undefined;
+      const filename =
+        initialFilename || deriveFilenameFromUrl(initialUrl ?? "") || undefined;
       form.setFieldsValue({
         protocol: initialProtocol,
-        url: cleanedUrl || initialUrl || "",
+        url: initialUrl || "",
         extra_headers: initialExtraHeaders ?? "",
         filename: filename || undefined,
       });
       // 分段设置默认取上次录制的选择（保存在全局设置里）。
       getAppSettings()
         .then((settings) => {
+          const rules = settings.filename_cleanup_rules ?? [];
+          setFilenameCleanupRules(rules);
+          if (initialUrl?.trim()) {
+            const cleanupSourceUrl = resolveFilenameCleanupSourceUrl(
+              initialUrl,
+              initialExtraHeaders
+            );
+            form.setFieldsValue({
+              url:
+                cleanDownloadUrlAfterFilenameCleanup(
+                  initialUrl,
+                  rules,
+                  cleanupSourceUrl
+                ) || initialUrl,
+              filename:
+                initialFilename ||
+                applyFilenameCleanupRules(
+                  deriveFilenameFromUrl(initialUrl),
+                  rules,
+                  cleanupSourceUrl
+                ) ||
+                undefined,
+            });
+          }
           form.setFieldsValue({
             split_enabled: settings.live_split_enabled,
             split_size_mb: settings.live_split_size_mb,
@@ -114,6 +146,43 @@ export function NewLiveRecordModal({
     resetKey,
   ]);
 
+  useEffect(() => {
+    if (!isOpen || !filenameCleanupRules.length) {
+      return;
+    }
+    const currentUrl =
+      (form.getFieldValue("url") as string | undefined) ?? "";
+    if (!currentUrl.trim()) return;
+    const cleanupSourceUrl = resolveFilenameCleanupSourceUrl(
+      currentUrl,
+      watchedExtraHeaders
+    );
+    const cleanedUrl = cleanDownloadUrlAfterFilenameCleanup(
+      currentUrl,
+      filenameCleanupRules,
+      cleanupSourceUrl
+    );
+    if (cleanedUrl === currentUrl) return;
+    if (!filenameTouched && !initialFilename) {
+      form.setFieldValue(
+        "filename",
+        applyFilenameCleanupRules(
+          deriveFilenameFromUrl(currentUrl),
+          filenameCleanupRules,
+          cleanupSourceUrl
+        ) || undefined
+      );
+    }
+    form.setFieldValue("url", cleanedUrl);
+  }, [
+    filenameCleanupRules,
+    filenameTouched,
+    form,
+    initialFilename,
+    isOpen,
+    watchedExtraHeaders,
+  ]);
+
   const handleSelectDir = async () => {
     const selected = await open({ multiple: false, directory: true });
     if (selected) {
@@ -124,9 +193,27 @@ export function NewLiveRecordModal({
   };
 
   const handleUrlChange = (value: string) => {
+    const cleanupSourceUrl = resolveFilenameCleanupSourceUrl(
+      value,
+      form.getFieldValue("extra_headers") as string | undefined
+    );
     if (!filenameTouched) {
-      const { filename: cleanedFilename } = cleanJableTitleFromUrl(value);
-      form.setFieldValue("filename", cleanedFilename || undefined);
+      form.setFieldValue(
+        "filename",
+        applyFilenameCleanupRules(
+          deriveFilenameFromUrl(value),
+          filenameCleanupRules,
+          cleanupSourceUrl
+        ) || undefined
+      );
+    }
+    const cleanedUrl = cleanDownloadUrlAfterFilenameCleanup(
+      value,
+      filenameCleanupRules,
+      cleanupSourceUrl
+    );
+    if (cleanedUrl !== value) {
+      form.setFieldValue("url", cleanedUrl);
     }
     const currentProtocol = form.getFieldValue("protocol") as LiveProtocol | undefined;
     const inferred = inferProtocolFromUrl(value);
@@ -138,7 +225,13 @@ export function NewLiveRecordModal({
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const url = values.url.trim();
+      const rawUrl = values.url.trim();
+      const extraHeaders = values.extra_headers?.trim() || undefined;
+      const url = cleanDownloadUrlAfterFilenameCleanup(
+        rawUrl,
+        filenameCleanupRules,
+        resolveFilenameCleanupSourceUrl(rawUrl, extraHeaders)
+      );
       if (!url) {
         message.error(t("liveStreamUrlIsRequired"));
         return;
@@ -160,7 +253,7 @@ export function NewLiveRecordModal({
         url,
         filename: values.filename?.trim() || undefined,
         output_dir: outputDir || undefined,
-        extra_headers: values.extra_headers?.trim() || undefined,
+        extra_headers: extraHeaders,
         protocol: values.protocol ?? "flv",
         split,
       };

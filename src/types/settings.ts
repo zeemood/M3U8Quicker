@@ -23,11 +23,14 @@ export interface ProxySettings {
   url: string;
 }
 
-export type FilenameCleanupMatchType = "contains" | "suffix";
+export type FilenameCleanupScope = "global" | "site";
+export type FilenameCleanupMatchType = "contains" | "suffix" | "regex";
 
 export interface FilenameCleanupRule {
   id: string;
   enabled: boolean;
+  scope: FilenameCleanupScope;
+  site: string;
   match_type: FilenameCleanupMatchType;
   pattern: string;
   replacement: string;

@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -267,10 +268,19 @@ pub struct ProxySettings {
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum FilenameCleanupScope {
+    #[default]
+    Global,
+    Site,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum FilenameCleanupMatchType {
     #[default]
     Contains,
     Suffix,
+    Regex,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -278,6 +288,8 @@ pub enum FilenameCleanupMatchType {
 pub struct FilenameCleanupRule {
     pub id: String,
     pub enabled: bool,
+    pub scope: FilenameCleanupScope,
+    pub site: String,
     pub match_type: FilenameCleanupMatchType,
     pub pattern: String,
     pub replacement: String,
@@ -289,6 +301,8 @@ impl Default for FilenameCleanupRule {
         Self {
             id: String::new(),
             enabled: true,
+            scope: FilenameCleanupScope::Global,
+            site: String::new(),
             match_type: FilenameCleanupMatchType::Contains,
             pattern: String::new(),
             replacement: String::new(),
@@ -300,6 +314,7 @@ impl Default for FilenameCleanupRule {
 pub const MAX_FILENAME_CLEANUP_RULES: usize = 100;
 pub const MAX_FILENAME_CLEANUP_PATTERN_CHARS: usize = 512;
 pub const MAX_FILENAME_CLEANUP_REPLACEMENT_CHARS: usize = 512;
+pub const MAX_FILENAME_CLEANUP_SITE_CHARS: usize = 253;
 
 pub const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
 pub const MIN_DOWNLOAD_CONCURRENCY: usize = 1;
@@ -642,30 +657,88 @@ impl AppSettings {
     }
 }
 
-pub fn apply_filename_cleanup_rules(name: &str, rules: &[FilenameCleanupRule]) -> String {
+pub struct FilenameCleanupResult {
+    pub filename: String,
+    pub matched: bool,
+}
+
+pub fn apply_filename_cleanup_rules_with_match(
+    name: &str,
+    rules: &[FilenameCleanupRule],
+    source_url: Option<&str>,
+) -> FilenameCleanupResult {
     let mut result = name.to_string();
+    let mut matched = false;
+    let source_host = source_url.and_then(filename_cleanup_source_host);
 
     for rule in rules.iter().filter(|rule| rule.enabled) {
         if rule.pattern.is_empty() {
             continue;
         }
+        if rule.scope == FilenameCleanupScope::Site {
+            let site = normalize_filename_cleanup_site(&rule.site);
+            if site.is_empty()
+                || !source_host
+                    .as_deref()
+                    .is_some_and(|host| filename_cleanup_host_matches(host, &site))
+            {
+                continue;
+            }
+        }
 
         result = match rule.match_type {
-            FilenameCleanupMatchType::Contains => replace_all_matching_text(
-                &result,
-                &rule.pattern,
-                &rule.replacement,
-                rule.case_sensitive,
-            ),
+            FilenameCleanupMatchType::Contains => {
+                for pattern_variant in
+                    filename_cleanup_contains_pattern_variants(&rule.pattern)
+                {
+                    if contains_matching_text(
+                        &result,
+                        &pattern_variant,
+                        rule.case_sensitive,
+                    ) {
+                        matched = true;
+                        result = replace_all_matching_text(
+                            &result,
+                            &pattern_variant,
+                            &rule.replacement,
+                            rule.case_sensitive,
+                        );
+                    }
+                }
+                result
+            }
             FilenameCleanupMatchType::Suffix => {
                 strip_matching_suffix(&result, &rule.pattern, rule.case_sensitive)
-                    .map(|prefix| format!("{prefix}{}", rule.replacement))
+                    .map(|prefix| {
+                        matched = true;
+                        format!("{prefix}{}", rule.replacement)
+                    })
                     .unwrap_or(result)
             }
+            FilenameCleanupMatchType::Regex => RegexBuilder::new(&rule.pattern)
+                .case_insensitive(!rule.case_sensitive)
+                .build()
+                .map(|regex| {
+                    matched |= regex.is_match(&result);
+                    regex.replace_all(&result, rule.replacement.as_str()).into_owned()
+                })
+                .unwrap_or(result),
         };
     }
 
-    result
+    FilenameCleanupResult {
+        filename: result,
+        matched,
+    }
+}
+
+#[cfg(test)]
+pub fn apply_filename_cleanup_rules(
+    name: &str,
+    rules: &[FilenameCleanupRule],
+    source_url: Option<&str>,
+) -> String {
+    apply_filename_cleanup_rules_with_match(name, rules, source_url).filename
 }
 
 fn sanitize_filename_cleanup_rules(rules: &mut Vec<FilenameCleanupRule>) {
@@ -689,9 +762,134 @@ fn sanitize_filename_cleanup_rules(rules: &mut Vec<FilenameCleanupRule>) {
             .chars()
             .take(MAX_FILENAME_CLEANUP_REPLACEMENT_CHARS)
             .collect();
+        rule.site = normalize_filename_cleanup_site(&rule.site);
+        if rule.scope == FilenameCleanupScope::Global {
+            rule.site.clear();
+        }
     }
 
     rules.retain(|rule| !rule.pattern.is_empty());
+}
+
+pub fn normalize_filename_cleanup_site(value: &str) -> String {
+    let trimmed = normalize_filename_cleanup_header_value(value);
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let candidate = url::Url::parse(&trimmed)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| {
+            trimmed.as_str()
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or(trimmed.as_str())
+                .split(':')
+                .next()
+                .unwrap_or(trimmed.as_str())
+                .to_string()
+        });
+
+    let normalized = candidate
+        .trim()
+        .trim_matches('.')
+        .trim_start_matches("*.")
+        .to_ascii_lowercase();
+    normalized
+        .strip_prefix("www.")
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
+fn normalize_filename_cleanup_header_value(value: &str) -> String {
+    value
+        .trim()
+        .replace("\\:", ":")
+        .trim_end_matches('\\')
+        .trim()
+        .to_string()
+}
+
+fn filename_cleanup_contains_pattern_variants(pattern: &str) -> Vec<String> {
+    let mut variants = vec![pattern.to_string()];
+    if pattern.contains(" | ") {
+        let variant = pattern.replace(" | ", " _ ");
+        if !variants.contains(&variant) {
+            variants.push(variant);
+        }
+    }
+    if pattern.contains(" _ ") {
+        let variant = pattern.replace(" _ ", " | ");
+        if !variants.contains(&variant) {
+            variants.push(variant);
+        }
+    }
+    variants
+}
+
+pub fn remove_title_query_parameter(url: &str) -> String {
+    let Ok(mut parsed) = url::Url::parse(url.trim()) else {
+        return url.to_string();
+    };
+    let query_pairs = parsed
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    let filtered = query_pairs
+        .iter()
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("title"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.len() == query_pairs.len() {
+        return url.to_string();
+    }
+
+    if filtered.is_empty() {
+        parsed.set_query(None);
+    } else {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        for (key, value) in filtered {
+            serializer.append_pair(&key, &value);
+        }
+        parsed.set_query(Some(&serializer.finish()));
+    }
+    parsed.to_string()
+}
+
+fn filename_cleanup_source_host(source_url: &str) -> Option<String> {
+    let trimmed = source_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if trimmed.starts_with('{') {
+        let value = serde_json::from_str::<serde_json::Value>(trimmed).ok()?;
+        for key in ["base_url", "url"] {
+            if let Some(url) = value.get(key).and_then(|value| value.as_str()) {
+                if let Some(host) = filename_cleanup_source_host(url) {
+                    return Some(host);
+                }
+            }
+        }
+        return None;
+    }
+
+    url::Url::parse(trimmed)
+        .ok()
+        .and_then(|url| url.host_str().map(normalize_filename_cleanup_site))
+        .or_else(|| {
+            let site = normalize_filename_cleanup_site(trimmed);
+            (!site.is_empty()).then_some(site)
+        })
+}
+
+fn filename_cleanup_host_matches(host: &str, site: &str) -> bool {
+    host == site
+}
+
+fn contains_matching_text(text: &str, pattern: &str, case_sensitive: bool) -> bool {
+    find_matching_text(text, pattern, case_sensitive).is_some()
 }
 
 fn replace_all_matching_text(
@@ -1260,7 +1458,7 @@ mod tests {
         ];
 
         assert_eq!(
-            apply_filename_cleanup_rules("video SITE name_FINAL", &rules),
+            apply_filename_cleanup_rules("video SITE name_FINAL", &rules, None),
             "video  name"
         );
     }
@@ -1285,9 +1483,126 @@ mod tests {
         ];
 
         assert_eq!(
-            apply_filename_cleanup_rules("TV keep tv", &rules),
+            apply_filename_cleanup_rules("TV keep tv", &rules, None),
             "X keep tv"
         );
+    }
+
+    #[test]
+    fn filename_cleanup_rules_support_regex_capture_groups() {
+        let rules = vec![FilenameCleanupRule {
+            id: "regex".to_string(),
+            match_type: FilenameCleanupMatchType::Regex,
+            pattern: r"^(.+?) - (Sample\.TV).+$".to_string(),
+            replacement: "$1 [$2]".to_string(),
+            ..FilenameCleanupRule::default()
+        }];
+
+        assert_eq!(
+            apply_filename_cleanup_rules(
+                "Example video - Sample.TV _ free stream",
+                &rules,
+                None
+            ),
+            "Example video [Sample.TV]"
+        );
+    }
+
+    #[test]
+    fn filename_cleanup_site_rules_match_normalized_domain_only() {
+        let rules = vec![
+            FilenameCleanupRule {
+                id: "global".to_string(),
+                pattern: "GLOBAL".to_string(),
+                replacement: "".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+            FilenameCleanupRule {
+                id: "site".to_string(),
+                scope: FilenameCleanupScope::Site,
+                site: "https://Sample.tv/path".to_string(),
+                pattern: "SITE".to_string(),
+                replacement: "".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+        ];
+
+        assert_eq!(
+            apply_filename_cleanup_rules(
+                "GLOBAL video SITE",
+                &rules,
+                Some("https://www.sample.tv/watch/1")
+            ),
+            " video "
+        );
+        assert_eq!(
+            apply_filename_cleanup_rules(
+                "GLOBAL video SITE",
+                &rules,
+                Some("sample.tv")
+            ),
+            " video "
+        );
+        assert_eq!(
+            apply_filename_cleanup_rules(
+                "GLOBAL video SITE",
+                &rules,
+                Some("https://media.sample.tv/watch/1")
+            ),
+            " video SITE"
+        );
+        assert_eq!(
+            apply_filename_cleanup_rules(
+                "GLOBAL video SITE",
+                &rules,
+                Some("https://example.com/video")
+            ),
+            " video SITE"
+        );
+    }
+
+    #[test]
+    fn filename_cleanup_reports_match_even_when_replacement_keeps_text() {
+        let rules = vec![FilenameCleanupRule {
+            id: "same".to_string(),
+            pattern: "SITE".to_string(),
+            replacement: "SITE".to_string(),
+            ..FilenameCleanupRule::default()
+        }];
+
+        let result = apply_filename_cleanup_rules_with_match("video SITE", &rules, None);
+
+        assert!(result.matched);
+        assert_eq!(result.filename, "video SITE");
+    }
+
+    #[test]
+    fn remove_title_query_parameter_preserves_other_query_values() {
+        assert_eq!(
+            remove_title_query_parameter(
+                "https://example.com/watch?title=Sample&id=42#part"
+            ),
+            "https://example.com/watch?id=42#part"
+        );
+        assert_eq!(
+            remove_title_query_parameter("https://example.com/watch?TITLE=Sample"),
+            "https://example.com/watch"
+        );
+        assert_eq!(
+            remove_title_query_parameter("https://example.com/watch?id=42"),
+            "https://example.com/watch?id=42"
+        );
+    }
+
+    #[test]
+    fn legacy_filename_cleanup_rules_default_to_global() {
+        let rule: FilenameCleanupRule = serde_json::from_str(
+            r#"{"id":"legacy","enabled":true,"match_type":"contains","pattern":"Site","replacement":"","case_sensitive":false}"#,
+        )
+        .unwrap();
+
+        assert_eq!(rule.scope, FilenameCleanupScope::Global);
+        assert!(rule.site.is_empty());
     }
 
     #[test]
