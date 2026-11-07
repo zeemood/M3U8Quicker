@@ -44,6 +44,7 @@ import {
   getAppSettings,
   setProxySettings,
   getFfmpegStatus,
+  setDownloadShutdownArmed,
   checkForUpdate,
   convertLiveRecordToMp4,
 } from "./services/api";
@@ -260,6 +261,59 @@ function App({
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlistenCountdown: UnlistenFn | undefined;
+    let unlistenFailed: UnlistenFn | undefined;
+    let unlistenRequested: UnlistenFn | undefined;
+
+    void listen<{ seconds: number }>("download-shutdown-countdown", ({ payload }) => {
+      void bringMainWindowToFront();
+      Modal.confirm({
+        title: t("shutdownCountdownActive", { value0: payload.seconds }),
+        content: t("downloadShutdownGlobalConfirmation"),
+        okText: t("openShutdownTool"),
+        cancelText: t("cancelShutdown"),
+        onOk: () => {
+          setActiveTool("shutdown-after-downloads");
+          setToolModalOpen(true);
+        },
+        onCancel: () => {
+          void setDownloadShutdownArmed(false)
+            .then(() => message.success(t("downloadShutdownCancelled")))
+            .catch((error) =>
+              message.error(
+                t("failedToUpdateDownloadShutdown", {
+                  value0: String(error),
+                })
+              )
+            );
+        },
+      });
+    }).then((fn) => {
+      unlistenCountdown = fn;
+    });
+
+    void listen<string>("download-shutdown-failed", ({ payload }) => {
+      message.error(
+        t("failedToRequestSystemShutdown", { value0: payload })
+      );
+    }).then((fn) => {
+      unlistenFailed = fn;
+    });
+
+    void listen("download-shutdown-requested", () => {
+      message.success(t("systemShutdownRequested"));
+    }).then((fn) => {
+      unlistenRequested = fn;
+    });
+
+    return () => {
+      unlistenCountdown?.();
+      unlistenFailed?.();
+      unlistenRequested?.();
     };
   }, []);
 

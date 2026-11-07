@@ -8,6 +8,7 @@ import type {
   DownloadCounts,
   DownloadGroup,
   DownloadSourceKind,
+  DownloadShutdownStatus,
   DownloadTaskPage,
   DownloadTaskSegmentState,
   DownloadTaskSummary,
@@ -22,7 +23,13 @@ import type {
   ResumeDownloadCheckResult,
   MediaAnalysisResult,
 } from "../types";
-import type { AppLanguage, AppSettings, FfmpegStatus, ProxySettings } from "../types/settings";
+import type {
+  AppLanguage,
+  AppSettings,
+  FfmpegStatus,
+  FilenameCleanupRule,
+  ProxySettings,
+} from "../types/settings";
 import type { UpdateAsset, UpdateInfo } from "../types/update";
 
 export function getAppLanguage(): Promise<AppLanguage> {
@@ -81,6 +88,18 @@ export async function retryFailedSegments(id: string): Promise<DownloadTaskSumma
 
 export async function getDownloadCounts(): Promise<DownloadCounts> {
   return invoke<DownloadCounts>("get_download_counts");
+}
+
+export async function getDownloadShutdownStatus(): Promise<DownloadShutdownStatus> {
+  return invoke<DownloadShutdownStatus>("get_download_shutdown_status");
+}
+
+export async function setDownloadShutdownArmed(
+  enabled: boolean
+): Promise<DownloadShutdownStatus> {
+  return invoke<DownloadShutdownStatus>("set_download_shutdown_armed", {
+    enabled,
+  });
 }
 
 export async function getDownloadsPage(
@@ -156,6 +175,12 @@ export async function openFirefoxAddonsPage(): Promise<boolean> {
 
 export async function getAppSettings(): Promise<AppSettings> {
   return invoke<AppSettings>("get_app_settings");
+}
+
+export async function setFilenameCleanupRules(
+  rules: FilenameCleanupRule[]
+): Promise<FilenameCleanupRule[]> {
+  return invoke<FilenameCleanupRule[]>("set_filename_cleanup_rules", { rules });
 }
 
 export async function setProxySettings(proxy: ProxySettings): Promise<void> {

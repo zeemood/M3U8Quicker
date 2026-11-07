@@ -52,6 +52,7 @@ import {
   setDownloadConcurrency,
   setDownloadOutputSettings,
   setDownloadSpeedLimit,
+  setFilenameCleanupRules,
   setFfmpegEnabled,
   setFfmpegPath,
   setHistoryPageSize,
@@ -73,10 +74,12 @@ import {
 import type {
   FfmpegDownloadProgress,
   FfmpegStatus,
+  FilenameCleanupRule,
   ProxySettings,
   ThemeMode,
 } from "../types/settings";
 import { UpdateModal } from "./UpdateModal";
+import { FilenameCleanupRulesEditor } from "./FilenameCleanupRulesEditor";
 
 const MIN_DOWNLOAD_CONCURRENCY = 1;
 const MAX_DOWNLOAD_CONCURRENCY = 64;
@@ -241,6 +244,11 @@ export function SettingsModal({
   const [savingConcurrency, setSavingConcurrency] = useState(false);
   const [savingSpeedLimit, setSavingSpeedLimit] = useState(false);
   const [savingDownloadOutput, setSavingDownloadOutput] = useState(false);
+  const [filenameCleanupRules, setFilenameCleanupRulesState] = useState<
+    FilenameCleanupRule[]
+  >([]);
+  const [savingFilenameCleanupRules, setSavingFilenameCleanupRules] =
+    useState(false);
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus | null>(null);
   const [ffmpegEnabled, setFfmpegEnabledState] = useState(true);
   const [ffmpegDownloading, setFfmpegDownloading] = useState(false);
@@ -312,6 +320,7 @@ export function SettingsModal({
           settings.delete_ts_temp_dir_after_download
         );
         setConvertToMp4(settings.convert_to_mp4);
+        setFilenameCleanupRulesState(settings.filename_cleanup_rules ?? []);
         setFfmpegEnabledState(settings.ffmpeg_enabled);
         setFfmpegCustomPath(settings.ffmpeg_path ?? "");
         setUserAgentState(settings.user_agent);
@@ -786,6 +795,37 @@ export function SettingsModal({
     onClose();
   };
 
+  const handleSaveFilenameCleanupRules = async () => {
+    if (
+      filenameCleanupRules.some(
+        (rule) => rule.enabled && !rule.pattern.trim()
+      )
+    ) {
+      message.error(t("filenameCleanupPatternRequired"));
+      return;
+    }
+
+    setSavingFilenameCleanupRules(true);
+    try {
+      const saved = await setFilenameCleanupRules(
+        filenameCleanupRules.map((rule) => ({
+          ...rule,
+          pattern: rule.pattern.trim(),
+        }))
+      );
+      setFilenameCleanupRulesState(saved);
+      message.success(t("filenameCleanupRulesSaved"));
+    } catch (error) {
+      message.error(
+        t("failedToSaveFilenameCleanupRules", {
+          value0: formatSettingsError(error),
+        })
+      );
+    } finally {
+      setSavingFilenameCleanupRules(false);
+    }
+  };
+
   const settingsTabItems = [
     {
       key: "general",
@@ -1154,6 +1194,15 @@ export function SettingsModal({
                 />
               </Space>
             </Space>
+          </Space>
+          <Space direction="vertical" size={10} style={{ width: "100%" }}>
+            <SectionTitle>{t("filenameCleanupRules")}</SectionTitle>
+            <FilenameCleanupRulesEditor
+              rules={filenameCleanupRules}
+              saving={savingFilenameCleanupRules}
+              onChange={setFilenameCleanupRulesState}
+              onSave={() => void handleSaveFilenameCleanupRules()}
+            />
           </Space>
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <SectionTitle>{t("requestTimeouts")}</SectionTitle>

@@ -265,6 +265,42 @@ pub struct ProxySettings {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FilenameCleanupMatchType {
+    #[default]
+    Contains,
+    Suffix,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct FilenameCleanupRule {
+    pub id: String,
+    pub enabled: bool,
+    pub match_type: FilenameCleanupMatchType,
+    pub pattern: String,
+    pub replacement: String,
+    pub case_sensitive: bool,
+}
+
+impl Default for FilenameCleanupRule {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: true,
+            match_type: FilenameCleanupMatchType::Contains,
+            pattern: String::new(),
+            replacement: String::new(),
+            case_sensitive: false,
+        }
+    }
+}
+
+pub const MAX_FILENAME_CLEANUP_RULES: usize = 100;
+pub const MAX_FILENAME_CLEANUP_PATTERN_CHARS: usize = 512;
+pub const MAX_FILENAME_CLEANUP_REPLACEMENT_CHARS: usize = 512;
+
 pub const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
 pub const MIN_DOWNLOAD_CONCURRENCY: usize = 1;
 pub const MAX_DOWNLOAD_CONCURRENCY: usize = 64;
@@ -429,6 +465,8 @@ pub struct AppSettings {
     #[serde(default, deserialize_with = "crate::i18n::deserialize_saved_language")]
     pub language: Option<crate::i18n::AppLanguage>,
     pub default_download_dir: Option<String>,
+    #[serde(default)]
+    pub filename_cleanup_rules: Vec<FilenameCleanupRule>,
     pub proxy: ProxySettings,
     pub download_concurrency: usize,
     pub download_speed_limit_kbps: u64,
@@ -479,6 +517,7 @@ impl Default for AppSettings {
         Self {
             language: None,
             default_download_dir: None,
+            filename_cleanup_rules: Vec::new(),
             proxy: ProxySettings::default(),
             download_concurrency: DEFAULT_DOWNLOAD_CONCURRENCY,
             download_speed_limit_kbps: DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS,
@@ -599,6 +638,139 @@ impl AppSettings {
         self.live_split_duration_min =
             normalize_live_split_duration_min(self.live_split_duration_min);
         self.history_page_size = normalize_history_page_size(self.history_page_size);
+        sanitize_filename_cleanup_rules(&mut self.filename_cleanup_rules);
+    }
+}
+
+pub fn apply_filename_cleanup_rules(name: &str, rules: &[FilenameCleanupRule]) -> String {
+    let mut result = name.to_string();
+
+    for rule in rules.iter().filter(|rule| rule.enabled) {
+        if rule.pattern.is_empty() {
+            continue;
+        }
+
+        result = match rule.match_type {
+            FilenameCleanupMatchType::Contains => replace_all_matching_text(
+                &result,
+                &rule.pattern,
+                &rule.replacement,
+                rule.case_sensitive,
+            ),
+            FilenameCleanupMatchType::Suffix => {
+                strip_matching_suffix(&result, &rule.pattern, rule.case_sensitive)
+                    .map(|prefix| format!("{prefix}{}", rule.replacement))
+                    .unwrap_or(result)
+            }
+        };
+    }
+
+    result
+}
+
+fn sanitize_filename_cleanup_rules(rules: &mut Vec<FilenameCleanupRule>) {
+    rules.truncate(MAX_FILENAME_CLEANUP_RULES);
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for (index, rule) in rules.iter_mut().enumerate() {
+        rule.id = rule.id.trim().to_string();
+        if rule.id.is_empty() || !seen_ids.insert(rule.id.clone()) {
+            rule.id = format!("cleanup-{}", index + 1);
+            seen_ids.insert(rule.id.clone());
+        }
+        rule.pattern = rule
+            .pattern
+            .trim()
+            .chars()
+            .take(MAX_FILENAME_CLEANUP_PATTERN_CHARS)
+            .collect();
+        rule.replacement = rule
+            .replacement
+            .chars()
+            .take(MAX_FILENAME_CLEANUP_REPLACEMENT_CHARS)
+            .collect();
+    }
+
+    rules.retain(|rule| !rule.pattern.is_empty());
+}
+
+fn replace_all_matching_text(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut remaining = text;
+
+    while let Some((start, end)) = find_matching_text(remaining, pattern, case_sensitive) {
+        result.push_str(&remaining[..start]);
+        result.push_str(replacement);
+        remaining = &remaining[end..];
+    }
+
+    result.push_str(remaining);
+    result
+}
+
+fn strip_matching_suffix<'a>(
+    text: &'a str,
+    pattern: &str,
+    case_sensitive: bool,
+) -> Option<&'a str> {
+    let pattern_len = pattern.chars().count();
+    if pattern_len == 0 {
+        return None;
+    }
+
+    let positions: Vec<usize> = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(text.len()))
+        .collect();
+    if positions.len() <= pattern_len {
+        return None;
+    }
+
+    let start = positions[positions.len() - 1 - pattern_len];
+    if !text_matches(&text[start..], pattern, case_sensitive) {
+        return None;
+    }
+
+    Some(&text[..start])
+}
+
+fn find_matching_text(text: &str, pattern: &str, case_sensitive: bool) -> Option<(usize, usize)> {
+    let pattern_len = pattern.chars().count();
+    if pattern_len == 0 {
+        return None;
+    }
+
+    let positions: Vec<usize> = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(text.len()))
+        .collect();
+    if positions.len() <= pattern_len {
+        return None;
+    }
+
+    for start_index in 0..=(positions.len().saturating_sub(pattern_len + 1)) {
+        let start = positions[start_index];
+        let end = positions[start_index + pattern_len];
+        if text_matches(&text[start..end], pattern, case_sensitive) {
+            return Some((start, end));
+        }
+    }
+
+    None
+}
+
+fn text_matches(candidate: &str, pattern: &str, case_sensitive: bool) -> bool {
+    if case_sensitive {
+        candidate == pattern
+    } else {
+        candidate.to_lowercase() == pattern.to_lowercase()
     }
 }
 
@@ -803,9 +975,9 @@ pub enum LiveGroup {
 pub fn live_group_for_status(status: &LiveRecordStatus) -> LiveGroup {
     match status {
         LiveRecordStatus::Recording | LiveRecordStatus::Paused => LiveGroup::Active,
-        LiveRecordStatus::Recorded
-        | LiveRecordStatus::Failed(_)
-        | LiveRecordStatus::Cancelled => LiveGroup::History,
+        LiveRecordStatus::Recorded | LiveRecordStatus::Failed(_) | LiveRecordStatus::Cancelled => {
+            LiveGroup::History
+        }
     }
 }
 
@@ -1067,5 +1239,79 @@ mod tests {
         ] {
             assert!(!file_type.supports_progressive_playback());
         }
+    }
+
+    #[test]
+    fn filename_cleanup_rules_support_contains_suffix_and_ordering() {
+        let rules = vec![
+            FilenameCleanupRule {
+                id: "contains".to_string(),
+                pattern: "SITE".to_string(),
+                replacement: "".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+            FilenameCleanupRule {
+                id: "suffix".to_string(),
+                match_type: FilenameCleanupMatchType::Suffix,
+                pattern: "_FINAL".to_string(),
+                replacement: "".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+        ];
+
+        assert_eq!(
+            apply_filename_cleanup_rules("video SITE name_FINAL", &rules),
+            "video  name"
+        );
+    }
+
+    #[test]
+    fn filename_cleanup_rules_respect_case_sensitivity_and_disabled_rules() {
+        let rules = vec![
+            FilenameCleanupRule {
+                id: "disabled".to_string(),
+                enabled: false,
+                pattern: "keep".to_string(),
+                replacement: "changed".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+            FilenameCleanupRule {
+                id: "case-sensitive".to_string(),
+                case_sensitive: true,
+                pattern: "TV".to_string(),
+                replacement: "X".to_string(),
+                ..FilenameCleanupRule::default()
+            },
+        ];
+
+        assert_eq!(
+            apply_filename_cleanup_rules("TV keep tv", &rules),
+            "X keep tv"
+        );
+    }
+
+    #[test]
+    fn filename_cleanup_rule_sanitization_removes_empty_patterns_and_fixes_ids() {
+        let mut settings = AppSettings {
+            filename_cleanup_rules: vec![
+                FilenameCleanupRule {
+                    id: " ".to_string(),
+                    pattern: " Site ".to_string(),
+                    ..FilenameCleanupRule::default()
+                },
+                FilenameCleanupRule {
+                    id: "empty".to_string(),
+                    pattern: "   ".to_string(),
+                    ..FilenameCleanupRule::default()
+                },
+            ],
+            ..AppSettings::default()
+        };
+
+        settings.sanitize();
+
+        assert_eq!(settings.filename_cleanup_rules.len(), 1);
+        assert_eq!(settings.filename_cleanup_rules[0].id, "cleanup-1");
+        assert_eq!(settings.filename_cleanup_rules[0].pattern, "Site");
     }
 }

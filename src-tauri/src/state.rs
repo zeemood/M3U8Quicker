@@ -15,6 +15,7 @@ use crate::models::default_user_agent;
 use crate::playback::{
     DownloadPriorityState, LivePlaybackSession, PlaybackServerState, PlaybackSession,
 };
+use crate::power::DownloadShutdownController;
 use crate::preview::PreviewSession;
 
 pub struct AppState {
@@ -46,6 +47,7 @@ pub struct AppState {
     pub preview_sessions: Arc<Mutex<HashMap<String, Arc<PreviewSession>>>>,
     pub history_page_size: Arc<Mutex<usize>>,
     pub close_to_tray: Arc<AtomicBool>,
+    pub download_shutdown: Arc<DownloadShutdownController>,
 }
 
 impl AppState {
@@ -84,6 +86,7 @@ impl AppState {
             preview_sessions: Arc::new(Mutex::new(HashMap::new())),
             history_page_size: Arc::new(Mutex::new(DEFAULT_HISTORY_PAGE_SIZE)),
             close_to_tray: Arc::new(AtomicBool::new(true)),
+            download_shutdown: Arc::new(DownloadShutdownController::default()),
         }
     }
 }

@@ -15,7 +15,8 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  deriveFilenameFromUrl,
+  applyFilenameCleanupRules,
+  cleanJableTitleFromUrl,
   DIRECT_FILE_TYPES,
   getFileTypeLabel,
   inferDirectFileTypeFromUrl,
@@ -27,6 +28,7 @@ import {
   type HlsTrackSelection,
   type InspectHlsTracksResult,
 } from "../types";
+import type { FilenameCleanupRule } from "../types/settings";
 
 interface NewDownloadModalProps {
   open: boolean;
@@ -62,6 +64,9 @@ export function NewDownloadModal({
   const [previewing, setPreviewing] = useState(false);
   const [outputDir, setOutputDir] = useState("");
   const [filenameTouched, setFilenameTouched] = useState(false);
+  const [filenameCleanupRules, setFilenameCleanupRules] = useState<
+    FilenameCleanupRule[]
+  >([]);
   const [downloadMode, setDownloadMode] = useState<DownloadMode>("hls");
   const [pendingHlsParams, setPendingHlsParams] = useState<CreateDownloadParams | null>(null);
   const [hlsInspection, setHlsInspection] = useState<InspectHlsTracksResult | null>(null);
@@ -70,8 +75,17 @@ export function NewDownloadModal({
 
   useEffect(() => {
     if (isOpen) {
-      getDefaultDownloadDir().then(setOutputDir);
+      Promise.all([getDefaultDownloadDir(), getAppSettings()])
+        .then(([directory, settings]) => {
+          setOutputDir(directory);
+          setFilenameCleanupRules(settings.filename_cleanup_rules ?? []);
+        })
+        .catch((error) => {
+          console.error("Failed to load download settings", error);
+          void getDefaultDownloadDir().then(setOutputDir).catch(() => {});
+        });
       setFilenameTouched(false);
+      setFilenameCleanupRules([]);
       setPendingHlsParams(null);
       setHlsInspection(null);
       setHlsSelection({});
@@ -82,13 +96,33 @@ export function NewDownloadModal({
           : "hls";
       setDownloadMode(mode);
       form.resetFields();
+      const { url: cleanedUrl, filename: cleanedFilename } = cleanJableTitleFromUrl(
+        initialUrl ?? ""
+      );
       form.setFieldsValue({
-        url: initialUrl || undefined,
-        filename: initialUrl ? deriveFilenameFromUrl(initialUrl) || undefined : undefined,
+        url: cleanedUrl || undefined,
+        filename: cleanedFilename || undefined,
         extra_headers: initialExtraHeaders || undefined,
       });
     }
-  }, [form, initialExtraHeaders, initialFileType, initialUrl, isOpen, resetKey]);
+  }, [
+    form,
+    initialExtraHeaders,
+    initialFileType,
+    initialUrl,
+    isOpen,
+    resetKey,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || filenameTouched) return;
+    const currentUrl = (form.getFieldValue("url") as string | undefined) ?? "";
+    const { filename } = cleanJableTitleFromUrl(currentUrl);
+    form.setFieldValue(
+      "filename",
+      applyFilenameCleanupRules(filename, filenameCleanupRules) || undefined
+    );
+  }, [filenameCleanupRules, filenameTouched, form, isOpen]);
 
   const handleSelectDir = async () => {
     const selected = await open({
@@ -111,8 +145,12 @@ export function NewDownloadModal({
   const handleUrlChange = (value: string) => {
     if (filenameTouched) return;
 
-    const derived = deriveFilenameFromUrl(value);
-    form.setFieldValue("filename", derived || undefined);
+    const { filename: cleanedFilename } = cleanJableTitleFromUrl(value);
+    form.setFieldValue(
+      "filename",
+      applyFilenameCleanupRules(cleanedFilename, filenameCleanupRules) ||
+        undefined
+    );
   };
 
   const submitDownload = async (params: CreateDownloadParams) => {

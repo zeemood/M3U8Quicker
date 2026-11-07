@@ -1,3 +1,5 @@
+import type { FilenameCleanupRule } from "./settings";
+
 export type DownloadStatus =
   | "Pending"
   | "Downloading"
@@ -88,6 +90,13 @@ export interface DownloadTaskSegmentState {
 export interface DownloadCounts {
   active_count: number;
   history_count: number;
+}
+
+export interface DownloadShutdownStatus {
+  armed: boolean;
+  pending: boolean;
+  active_downloads: number;
+  countdown_seconds: number;
 }
 
 export interface DownloadTaskPage {
@@ -477,6 +486,71 @@ export function deriveFilenameFromUrl(url: string): string {
   } catch {
     return "";
   }
+}
+
+const JABLE_TITLE_SUFFIX = " - Jable.TV _ 免費高清AV在線看 _ J片 AV看到飽";
+
+/**
+ * 当 URL 推导出的文件名包含 Jable.TV 站点标题后缀时，
+ * 清理文件名并去掉 URL 中的 title 查询参数。
+ */
+export function cleanJableTitleFromUrl(url: string): {
+  url: string;
+  filename: string;
+} {
+  const derived = deriveFilenameFromUrl(url);
+  if (!derived.includes(JABLE_TITLE_SUFFIX)) {
+    return { url, filename: derived };
+  }
+
+  const cleanedFilename = derived.replace(JABLE_TITLE_SUFFIX, "").trim();
+
+  try {
+    const parsed = new URL(url.trim());
+    parsed.searchParams.delete("title");
+    return { url: parsed.href, filename: cleanedFilename };
+  } catch {
+    return { url, filename: cleanedFilename };
+  }
+}
+
+export function applyFilenameCleanupRules(
+  name: string,
+  rules: FilenameCleanupRule[]
+): string {
+  let result = name;
+
+  for (const rule of rules) {
+    const pattern = rule.pattern.trim();
+    if (!rule.enabled || !pattern) {
+      continue;
+    }
+
+    if (rule.match_type === "suffix") {
+      const lowerResult = result.toLowerCase();
+      const lowerPattern = pattern.toLowerCase();
+      if (
+        rule.case_sensitive
+          ? result.endsWith(pattern)
+          : lowerResult.endsWith(lowerPattern)
+      ) {
+        result = result.slice(0, result.length - pattern.length) + rule.replacement;
+      }
+      continue;
+    }
+
+    const expression = new RegExp(
+      escapeRegExp(pattern),
+      rule.case_sensitive ? "g" : "gi"
+    );
+    result = result.replace(expression, () => rule.replacement);
+  }
+
+  return normalizeDownloadFilename(result);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeDownloadFilename(name: string): string {

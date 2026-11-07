@@ -41,6 +41,7 @@ import {
 } from "../services/api";
 import type { MediaAnalysisResult } from "../types";
 import { VideoClipPicker, type ClipRange } from "./VideoClipPicker";
+import { ShutdownAfterDownloadsTool } from "./ShutdownAfterDownloadsTool";
 
 export type ToolAction =
   | "merge-ts"
@@ -52,6 +53,7 @@ export type ToolAction =
   | "codec-convert"
   | "analyze-media"
   | "multi-track-hls-to-mp4"
+  | "shutdown-after-downloads"
   | "install-chrome-extension"
   | "install-edge-extension"
   | "install-firefox-extension";
@@ -268,6 +270,10 @@ export function ToolsModal({ open, tool, initialInputPath, onClose }: ToolsModal
       form.setFieldValue("clip_mode", "fast");
     }
   }, [form, open, tool, initialInputPath]);
+
+  if (tool === "shutdown-after-downloads") {
+    return <ShutdownAfterDownloadsTool open={open} onClose={onClose} />;
+  }
 
   const handlePickInput = async () => {
     if (tool === "merge-ts" || tool === "multi-track-hls-to-mp4") {

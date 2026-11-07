@@ -20,7 +20,7 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  deriveFilenameFromUrl,
+  cleanJableTitleFromUrl,
   type FileType,
   type CreateLiveRecordParams,
   type LiveProtocol,
@@ -83,11 +83,13 @@ export function NewLiveRecordModal({
       setFilenameTouched(false);
       form.resetFields();
       const initialProtocol: LiveProtocol = inferProtocolFromUrl(initialUrl ?? "");
-      const filename =
-        initialFilename || (initialUrl ? deriveFilenameFromUrl(initialUrl) : undefined);
+      const { url: cleanedUrl, filename: cleanedFilename } = cleanJableTitleFromUrl(
+        initialUrl ?? ""
+      );
+      const filename = initialFilename || cleanedFilename || undefined;
       form.setFieldsValue({
         protocol: initialProtocol,
-        url: initialUrl ?? "",
+        url: cleanedUrl || initialUrl || "",
         extra_headers: initialExtraHeaders ?? "",
         filename: filename || undefined,
       });
@@ -123,8 +125,8 @@ export function NewLiveRecordModal({
 
   const handleUrlChange = (value: string) => {
     if (!filenameTouched) {
-      const derived = deriveFilenameFromUrl(value);
-      form.setFieldValue("filename", derived || undefined);
+      const { filename: cleanedFilename } = cleanJableTitleFromUrl(value);
+      form.setFieldValue("filename", cleanedFilename || undefined);
     }
     const currentProtocol = form.getFieldValue("protocol") as LiveProtocol | undefined;
     const inferred = inferProtocolFromUrl(value);
