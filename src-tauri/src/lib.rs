@@ -8,6 +8,7 @@ mod live_recorder;
 mod models;
 mod persistence;
 mod playback;
+mod power;
 mod preview;
 mod remux;
 mod state;
@@ -447,6 +448,7 @@ pub fn run() {
             commands::get_default_download_dir,
             commands::set_default_download_dir,
             commands::get_app_settings,
+            commands::set_filename_cleanup_rules,
             commands::set_proxy_settings,
             commands::set_user_agent,
             commands::set_ignore_https_certificate_errors,
@@ -460,6 +462,8 @@ pub fn run() {
             commands::set_download_output_settings,
             commands::set_history_page_size,
             commands::set_close_to_tray,
+            power::get_download_shutdown_status,
+            power::set_download_shutdown_armed,
             commands::open_file_location,
             commands::open_url,
             commands::install_chromium_extension,

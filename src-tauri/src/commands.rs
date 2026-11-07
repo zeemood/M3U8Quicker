@@ -90,13 +90,20 @@ pub async fn create_download(
     } else {
         state.default_download_dir.lock().await.clone()
     };
-    let filename = normalize_download_filename(
-        params
-            .filename
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| derive_filename_from_url(&params.url)),
-    );
+    let provided_filename = params
+        .filename
+        .clone()
+        .filter(|name| !name.trim().is_empty());
+    let filename = if let Some(filename) = provided_filename {
+        normalize_download_filename(filename)
+    } else {
+        let settings = persistence::load_settings(&app_handle).await;
+        let derived = apply_filename_cleanup_rules(
+            &derive_filename_from_url(&params.url),
+            &settings.filename_cleanup_rules,
+        );
+        normalize_download_filename(derived)
+    };
     let filename = if file_type.is_direct_download() {
         normalize_direct_download_filename(filename, file_type)
     } else {
@@ -144,6 +151,7 @@ pub async fn create_download(
             let mut downloads = state.downloads.lock().await;
             downloads.insert(id.clone(), task.clone());
         }
+        crate::power::note_download_started(state.inner());
         persistence::save_task(&app_handle, &task).await?;
 
         start_mp4_download_worker(
@@ -210,6 +218,7 @@ pub async fn create_download(
             let mut downloads = state.downloads.lock().await;
             downloads.insert(id.clone(), task.clone());
         }
+        crate::power::note_download_started(state.inner());
         persistence::save_task(&app_handle, &task).await?;
 
         start_hls_bundle_download_worker(
@@ -271,6 +280,7 @@ pub async fn create_download(
                     let mut downloads = state.downloads.lock().await;
                     downloads.insert(id.clone(), task.clone());
                 }
+                crate::power::note_download_started(state.inner());
                 persistence::save_task(&app_handle, &task).await?;
 
                 start_download_worker(
@@ -330,6 +340,7 @@ pub async fn create_download(
                     let mut downloads = state.downloads.lock().await;
                     downloads.insert(id.clone(), task.clone());
                 }
+                crate::power::note_download_started(state.inner());
                 persistence::save_task(&app_handle, &task).await?;
 
                 start_hls_bundle_download_worker(
@@ -1019,11 +1030,13 @@ pub async fn get_download_segment_state(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<DownloadTaskSegmentState, AppError> {
-    if let Some(task) = {
+    if let Some(segment_state) = {
         let downloads = state.downloads.lock().await;
-        downloads.get(&id).cloned()
+        downloads
+            .get(&id)
+            .map(persistence::task_to_segment_state)
     } {
-        return Ok(persistence::task_to_segment_state(&task));
+        return Ok(segment_state);
     }
 
     persistence::load_download_segment_state(&app_handle, &id)
@@ -1037,11 +1050,11 @@ pub async fn get_download_summary(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<DownloadTaskSummary, AppError> {
-    if let Some(task) = {
+    if let Some(summary) = {
         let downloads = state.downloads.lock().await;
-        downloads.get(&id).cloned()
+        downloads.get(&id).map(persistence::task_to_summary)
     } {
-        return Ok(persistence::task_to_summary(&task));
+        return Ok(summary);
     }
 
     persistence::load_download_summary(&app_handle, &id)
@@ -1209,6 +1222,7 @@ pub async fn get_app_settings(
     Ok(AppSettings {
         language: Some(crate::i18n::current_language()),
         default_download_dir: Some(state.default_download_dir.lock().await.clone()),
+        filename_cleanup_rules: saved_settings.filename_cleanup_rules,
         proxy: state.proxy_settings.lock().await.clone(),
         download_concurrency: *state.max_concurrent_segments.lock().await,
         download_speed_limit_kbps: state.download_rate_limiter.limit_kbps().await,
@@ -1239,6 +1253,58 @@ pub async fn get_app_settings(
             .close_to_tray
             .load(std::sync::atomic::Ordering::Relaxed),
     })
+}
+
+#[tauri::command]
+pub async fn set_filename_cleanup_rules(
+    app_handle: AppHandle,
+    rules: Vec<FilenameCleanupRule>,
+) -> Result<Vec<FilenameCleanupRule>, AppError> {
+    let mut normalized_rules = rules;
+    sanitize_filename_cleanup_rule_list(&mut normalized_rules)?;
+
+    persistence::try_update_settings(&app_handle, |settings| {
+        settings.filename_cleanup_rules = normalized_rules.clone();
+    })
+    .await?;
+
+    let settings = persistence::load_settings(&app_handle).await;
+    Ok(settings.filename_cleanup_rules)
+}
+
+fn sanitize_filename_cleanup_rule_list(
+    rules: &mut Vec<FilenameCleanupRule>,
+) -> Result<(), AppError> {
+    if rules.len() > MAX_FILENAME_CLEANUP_RULES {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tooManyFilenameCleanupRules").to_string(),
+        ));
+    }
+    for rule in rules.iter() {
+        if rule.enabled && rule.pattern.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                crate::i18n::tr("filenameCleanupPatternRequired").to_string(),
+            ));
+        }
+        if rule.pattern.chars().count() > MAX_FILENAME_CLEANUP_PATTERN_CHARS {
+            return Err(AppError::InvalidInput(
+                crate::i18n::tr("filenameCleanupPatternTooLong").to_string(),
+            ));
+        }
+        if rule.replacement.chars().count() > MAX_FILENAME_CLEANUP_REPLACEMENT_CHARS {
+            return Err(AppError::InvalidInput(
+                crate::i18n::tr("filenameCleanupReplacementTooLong").to_string(),
+            ));
+        }
+    }
+
+    let mut settings = AppSettings {
+        filename_cleanup_rules: std::mem::take(rules),
+        ..AppSettings::default()
+    };
+    settings.sanitize();
+    *rules = settings.filename_cleanup_rules;
+    Ok(())
 }
 
 /// 按当前代理、User-Agent、证书校验与超时设置重建共享 HTTP 客户端。

@@ -13,6 +13,7 @@ import {
   DownOutlined,
   PictureOutlined,
   PlusOutlined,
+  PoweroffOutlined,
   ScissorOutlined,
   SettingOutlined,
   SwapOutlined,
@@ -121,6 +122,11 @@ export function Toolbar({
           icon: <ApartmentOutlined />,
         },
       ],
+    },
+    {
+      key: "shutdown-after-downloads",
+      label: t("shutdownAfterDownloads"),
+      icon: <PoweroffOutlined />,
     },
     {
       key: "install-browser-extension",

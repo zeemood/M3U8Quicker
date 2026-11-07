@@ -23,9 +23,21 @@ export interface ProxySettings {
   url: string;
 }
 
+export type FilenameCleanupMatchType = "contains" | "suffix";
+
+export interface FilenameCleanupRule {
+  id: string;
+  enabled: boolean;
+  match_type: FilenameCleanupMatchType;
+  pattern: string;
+  replacement: string;
+  case_sensitive: boolean;
+}
+
 export interface AppSettings {
   language: AppLanguage;
   default_download_dir: string | null;
+  filename_cleanup_rules: FilenameCleanupRule[];
   proxy: ProxySettings;
   download_concurrency: number;
   download_speed_limit_kbps: number;
