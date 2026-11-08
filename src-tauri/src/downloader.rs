@@ -231,13 +231,21 @@ struct PersistThrottleState {
 #[derive(Debug)]
 struct DownloadRateLimitState {
     limit_kbps: u64,
+    smart_enabled: bool,
+    smart_threshold: usize,
     next_available_at: Instant,
 }
 
 #[derive(Debug)]
 pub struct DownloadRateLimiter {
     state: Mutex<DownloadRateLimitState>,
+    active_tasks: AtomicUsize,
     notify: Notify,
+}
+
+#[derive(Debug)]
+pub struct DownloadRateLimitTaskGuard {
+    limiter: Arc<DownloadRateLimiter>,
 }
 
 impl DownloadRateLimiter {
@@ -245,21 +253,51 @@ impl DownloadRateLimiter {
         Self {
             state: Mutex::new(DownloadRateLimitState {
                 limit_kbps,
+                smart_enabled: false,
+                smart_threshold: DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD,
                 next_available_at: Instant::now(),
             }),
+            active_tasks: AtomicUsize::new(0),
             notify: Notify::new(),
         }
     }
 
-    pub async fn set_limit_kbps(&self, limit_kbps: u64) {
+    pub async fn set_config(
+        &self,
+        limit_kbps: u64,
+        smart_enabled: bool,
+        smart_threshold: usize,
+    ) {
         let mut state = self.state.lock().await;
         state.limit_kbps = limit_kbps;
+        state.smart_enabled = smart_enabled && limit_kbps > 0;
+        state.smart_threshold = normalize_download_smart_speed_limit_threshold(smart_threshold);
         state.next_available_at = Instant::now();
         self.notify.notify_waiters();
     }
 
     pub async fn limit_kbps(&self) -> u64 {
         self.state.lock().await.limit_kbps
+    }
+
+    pub async fn smart_config(&self) -> (bool, usize) {
+        let state = self.state.lock().await;
+        (state.smart_enabled, state.smart_threshold)
+    }
+
+    pub fn begin_task(self: &Arc<Self>) -> DownloadRateLimitTaskGuard {
+        self.active_tasks.fetch_add(1, Ordering::AcqRel);
+        self.notify.notify_waiters();
+        DownloadRateLimitTaskGuard {
+            limiter: Arc::clone(self),
+        }
+    }
+
+    #[cfg(test)]
+    async fn effective_limit_kbps(&self) -> u64 {
+        let active_tasks = self.active_tasks.load(Ordering::Acquire);
+        let state = self.state.lock().await;
+        effective_rate_limit_kbps(&state, active_tasks)
     }
 
     pub async fn wait_for_bytes(
@@ -269,9 +307,11 @@ impl DownloadRateLimiter {
     ) -> Result<(), AppError> {
         loop {
             let notified = self.notify.notified();
+            let active_tasks = self.active_tasks.load(Ordering::Acquire);
             let wait_duration = {
                 let mut state = self.state.lock().await;
-                reserve_rate_limit_delay(&mut state, byte_count, Instant::now())
+                let limit_kbps = effective_rate_limit_kbps(&state, active_tasks);
+                reserve_rate_limit_delay(&mut state, limit_kbps, byte_count, Instant::now())
             };
 
             if wait_duration.is_zero() {
@@ -287,17 +327,37 @@ impl DownloadRateLimiter {
     }
 }
 
+impl Drop for DownloadRateLimitTaskGuard {
+    fn drop(&mut self) {
+        let _ = self.limiter.active_tasks.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |active| active.checked_sub(1),
+        );
+        self.limiter.notify.notify_waiters();
+    }
+}
+
+fn effective_rate_limit_kbps(state: &DownloadRateLimitState, active_tasks: usize) -> u64 {
+    if state.smart_enabled && active_tasks < state.smart_threshold {
+        0
+    } else {
+        state.limit_kbps
+    }
+}
+
 fn reserve_rate_limit_delay(
     state: &mut DownloadRateLimitState,
+    limit_kbps: u64,
     byte_count: usize,
     now: Instant,
 ) -> Duration {
-    if state.limit_kbps == 0 || byte_count == 0 {
+    if limit_kbps == 0 || byte_count == 0 {
         state.next_available_at = now;
         return Duration::ZERO;
     }
 
-    let bytes_per_second = state.limit_kbps.saturating_mul(1024);
+    let bytes_per_second = limit_kbps.saturating_mul(1024);
     if bytes_per_second == 0 {
         state.next_available_at = now;
         return Duration::ZERO;
@@ -3109,6 +3169,7 @@ pub async fn run_download(
     cancel_token: CancellationToken,
     max_concurrent: Arc<Mutex<usize>>,
 ) -> Result<DownloadRunOutcome, AppError> {
+    let active_task_guard = rate_limiter.begin_task();
     let total = segments.len();
     let temp_dir = temp_dir_for_task(&output_dir, &task_id);
     tokio::fs::create_dir_all(&temp_dir).await?;
@@ -3383,6 +3444,7 @@ pub async fn run_download(
     }
 
     // Emit merging status
+    drop(active_task_guard);
     let downloaded_bytes = total_bytes.load(Ordering::Relaxed);
     speed_bytes_per_sec.store(0, Ordering::Relaxed);
     emit_progress(
@@ -3572,6 +3634,7 @@ pub async fn run_hls_bundle_download(
     cancel_token: CancellationToken,
     max_concurrent: Arc<Mutex<usize>>,
 ) -> Result<DownloadRunOutcome, AppError> {
+    let active_task_guard = rate_limiter.begin_task();
     let total = entries.len();
     tokio::fs::create_dir_all(&bundle_dir).await?;
     write_bundle_playlist_files(&bundle_dir, &playlist_files).await?;
@@ -3814,6 +3877,7 @@ pub async fn run_hls_bundle_download(
         return Ok(DownloadRunOutcome::Incomplete);
     }
 
+    drop(active_task_guard);
     if convert_to_mp4 {
         if let Some(ffmpeg_path) = ffmpeg_path {
             let mp4_filename = ensure_extension(&filename, "mp4");
@@ -4870,6 +4934,7 @@ pub async fn run_mp4_download<R: tauri::Runtime>(
     restart_confirmed: bool,
     cancel_token: CancellationToken,
 ) -> Result<DownloadRunOutcome, AppError> {
+    let _active_task_guard = rate_limiter.begin_task();
     let deadline = Instant::now() + mp4_timeout();
     // Resolve collisions once. Retries belong to this download and must keep its paths.
     let (mp4_path, partial_path) =
@@ -5256,10 +5321,12 @@ mod tests {
         let now = Instant::now();
         let mut state = DownloadRateLimitState {
             limit_kbps: 0,
+            smart_enabled: false,
+            smart_threshold: DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD,
             next_available_at: now,
         };
 
-        let delay = reserve_rate_limit_delay(&mut state, 1024 * 1024, now);
+        let delay = reserve_rate_limit_delay(&mut state, 0, 1024 * 1024, now);
 
         assert_eq!(delay, Duration::ZERO);
     }
@@ -5269,14 +5336,35 @@ mod tests {
         let now = Instant::now();
         let mut state = DownloadRateLimitState {
             limit_kbps: 1024,
+            smart_enabled: false,
+            smart_threshold: DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD,
             next_available_at: now,
         };
 
-        let first_delay = reserve_rate_limit_delay(&mut state, 1024, now);
-        let second_delay = reserve_rate_limit_delay(&mut state, 1024, now);
+        let first_delay = reserve_rate_limit_delay(&mut state, 1024, 1024, now);
+        let second_delay = reserve_rate_limit_delay(&mut state, 1024, 1024, now);
 
         assert!(first_delay > Duration::ZERO);
         assert!(second_delay > first_delay);
+    }
+
+    #[tokio::test]
+    async fn smart_rate_limit_switches_at_active_task_threshold() {
+        let limiter = Arc::new(DownloadRateLimiter::new(1024));
+        limiter.set_config(1024, true, 3).await;
+
+        let first = limiter.begin_task();
+        let second = limiter.begin_task();
+        assert_eq!(limiter.effective_limit_kbps().await, 0);
+
+        let third = limiter.begin_task();
+        assert_eq!(limiter.effective_limit_kbps().await, 1024);
+
+        drop(third);
+        assert_eq!(limiter.effective_limit_kbps().await, 0);
+        drop(second);
+        drop(first);
+        assert_eq!(limiter.effective_limit_kbps().await, 0);
     }
 
     #[test]

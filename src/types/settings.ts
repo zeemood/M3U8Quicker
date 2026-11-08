@@ -44,6 +44,8 @@ export interface AppSettings {
   proxy: ProxySettings;
   download_concurrency: number;
   download_speed_limit_kbps: number;
+  download_smart_speed_limit_enabled: boolean;
+  download_smart_speed_limit_threshold: number;
   preview_columns: number;
   preview_count: number;
   preview_thumbnail_width: number;

@@ -320,6 +320,8 @@ pub const DEFAULT_DOWNLOAD_CONCURRENCY: usize = 8;
 pub const MIN_DOWNLOAD_CONCURRENCY: usize = 1;
 pub const MAX_DOWNLOAD_CONCURRENCY: usize = 64;
 pub const DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS: u64 = 0;
+pub const DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD: usize = 3;
+pub const MIN_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD: usize = 1;
 pub const DEFAULT_PREVIEW_COLUMNS: usize = 3;
 pub const MIN_PREVIEW_COLUMNS: usize = 1;
 pub const MAX_PREVIEW_COLUMNS: usize = 12;
@@ -380,6 +382,10 @@ pub fn normalize_download_concurrency(value: usize) -> usize {
 
 pub fn normalize_download_speed_limit_kbps(value: u64) -> u64 {
     value
+}
+
+pub fn normalize_download_smart_speed_limit_threshold(value: usize) -> usize {
+    value.max(MIN_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD)
 }
 
 pub fn normalize_preview_columns(value: usize) -> usize {
@@ -485,6 +491,10 @@ pub struct AppSettings {
     pub proxy: ProxySettings,
     pub download_concurrency: usize,
     pub download_speed_limit_kbps: u64,
+    #[serde(default)]
+    pub download_smart_speed_limit_enabled: bool,
+    #[serde(default = "default_download_smart_speed_limit_threshold")]
+    pub download_smart_speed_limit_threshold: usize,
     pub preview_columns: usize,
     pub preview_count: usize,
     pub preview_thumbnail_width: u32,
@@ -536,6 +546,8 @@ impl Default for AppSettings {
             proxy: ProxySettings::default(),
             download_concurrency: DEFAULT_DOWNLOAD_CONCURRENCY,
             download_speed_limit_kbps: DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS,
+            download_smart_speed_limit_enabled: false,
+            download_smart_speed_limit_threshold: DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD,
             preview_columns: DEFAULT_PREVIEW_COLUMNS,
             preview_count: DEFAULT_PREVIEW_COUNT,
             preview_thumbnail_width: DEFAULT_PREVIEW_THUMBNAIL_WIDTH,
@@ -566,6 +578,10 @@ impl Default for AppSettings {
 
 fn default_history_page_size() -> usize {
     DEFAULT_HISTORY_PAGE_SIZE
+}
+
+fn default_download_smart_speed_limit_threshold() -> usize {
+    DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD
 }
 
 fn default_close_to_tray() -> bool {
@@ -629,6 +645,13 @@ impl AppSettings {
         self.download_concurrency = normalize_download_concurrency(self.download_concurrency);
         self.download_speed_limit_kbps =
             normalize_download_speed_limit_kbps(self.download_speed_limit_kbps);
+        self.download_smart_speed_limit_threshold =
+            normalize_download_smart_speed_limit_threshold(
+                self.download_smart_speed_limit_threshold,
+            );
+        if self.download_smart_speed_limit_enabled && self.download_speed_limit_kbps == 0 {
+            self.download_smart_speed_limit_enabled = false;
+        }
         self.preview_columns = normalize_preview_columns(self.preview_columns);
         self.preview_count = normalize_preview_count(self.preview_count);
         self.preview_thumbnail_width =
@@ -1371,6 +1394,11 @@ mod tests {
             settings.download_speed_limit_kbps,
             DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS
         );
+        assert!(!settings.download_smart_speed_limit_enabled);
+        assert_eq!(
+            settings.download_smart_speed_limit_threshold,
+            DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD
+        );
         assert!(settings.ffmpeg_enabled);
         assert_eq!(settings.history_page_size, DEFAULT_HISTORY_PAGE_SIZE);
     }
@@ -1385,6 +1413,28 @@ mod tests {
         settings.sanitize();
 
         assert_eq!(settings.download_speed_limit_kbps, 1024);
+    }
+
+    #[test]
+    fn app_settings_normalizes_smart_download_speed_limit() {
+        let mut settings = AppSettings {
+            download_speed_limit_kbps: 2048,
+            download_smart_speed_limit_enabled: true,
+            download_smart_speed_limit_threshold: 0,
+            ..AppSettings::default()
+        };
+
+        settings.sanitize();
+
+        assert!(settings.download_smart_speed_limit_enabled);
+        assert_eq!(
+            settings.download_smart_speed_limit_threshold,
+            MIN_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD
+        );
+
+        settings.download_speed_limit_kbps = 0;
+        settings.sanitize();
+        assert!(!settings.download_smart_speed_limit_enabled);
     }
 
     #[test]

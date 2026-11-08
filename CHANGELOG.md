@@ -4,11 +4,13 @@
 
 - 新增「忽略 HTTPS 证书错误」网络设置，并优化证书校验失败时的多语言错误提示。
 - 优化视频预览布局：默认 9 张缩略图随窗口高度自适应，完整保留画面比例，减少滚动。
+- 下载设置新增智能限速：同时下载任务达到设定数量时限制总下载速度，低于阈值时自动恢复全速。
 
 **English**
 
 - Added an “Ignore HTTPS certificate errors” option in network settings and improved multilingual certificate validation error messages.
 - Improved the video preview layout: the default nine thumbnails now adapt to the window height while preserving their aspect ratios and reducing scrolling.
+- Added smart speed limiting to download settings: total download speed is capped when the active task count reaches the configured threshold and returns to full speed below it.
 
 ## 1.2.9
 

@@ -339,7 +339,11 @@ pub fn run() {
                 }
                 state
                     .download_rate_limiter
-                    .set_limit_kbps(settings.download_speed_limit_kbps)
+                    .set_config(
+                        settings.download_speed_limit_kbps,
+                        settings.download_smart_speed_limit_enabled,
+                        settings.download_smart_speed_limit_threshold,
+                    )
                     .await;
                 {
                     let mut preview_columns = state.preview_columns.lock().await;

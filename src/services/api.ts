@@ -232,9 +232,15 @@ export async function setDownloadConcurrency(
 }
 
 export async function setDownloadSpeedLimit(
-  downloadSpeedLimitKbps: number
+  downloadSpeedLimitKbps: number,
+  downloadSmartSpeedLimitEnabled: boolean,
+  downloadSmartSpeedLimitThreshold: number
 ): Promise<void> {
-  return invoke("set_download_speed_limit", { downloadSpeedLimitKbps });
+  return invoke("set_download_speed_limit", {
+    downloadSpeedLimitKbps,
+    downloadSmartSpeedLimitEnabled,
+    downloadSmartSpeedLimitThreshold,
+  });
 }
 
 export async function setHistoryPageSize(pageSize: number): Promise<void> {

@@ -32,6 +32,7 @@ import {
 import {
   CheckCircleFilled,
   CloseCircleFilled,
+  ControlOutlined,
   DashboardOutlined,
   GithubOutlined,
   ReloadOutlined,
@@ -88,6 +89,8 @@ import {
 const MIN_DOWNLOAD_CONCURRENCY = 1;
 const MAX_DOWNLOAD_CONCURRENCY = 64;
 const DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS = 1024;
+const DEFAULT_SMART_SPEED_LIMIT_THRESHOLD = 3;
+const MIN_SMART_SPEED_LIMIT_THRESHOLD = 1;
 
 const SPEED_LIMIT_PRESETS: { label: string; value: number }[] = [
   { label: "512 KB/s", value: 512 },
@@ -126,7 +129,7 @@ function formatSpeedKbps(kbps: number | null): string {
   return `${kbps} KB/s`;
 }
 
-type SpeedLimitMode = "unlimited" | "limited";
+type SpeedLimitMode = "unlimited" | "smart" | "limited";
 
 interface SettingsModalProps {
   open: boolean;
@@ -251,6 +254,12 @@ export function SettingsModal({
     useState<number | null>(DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS);
   const [savedDownloadSpeedLimitKbps, setSavedDownloadSpeedLimitKbps] =
     useState<number>(0);
+  const [savedSpeedLimitMode, setSavedSpeedLimitMode] =
+    useState<SpeedLimitMode>("unlimited");
+  const [smartSpeedLimitThreshold, setSmartSpeedLimitThreshold] =
+    useState<number | null>(DEFAULT_SMART_SPEED_LIMIT_THRESHOLD);
+  const [savedSmartSpeedLimitThreshold, setSavedSmartSpeedLimitThreshold] =
+    useState<number>(DEFAULT_SMART_SPEED_LIMIT_THRESHOLD);
   const [deleteTsTempDirAfterDownload, setDeleteTsTempDirAfterDownload] =
     useState(false);
   const [convertToMp4, setConvertToMp4] = useState(true);
@@ -325,13 +334,24 @@ export function SettingsModal({
         setDownloadConcurrencyState(settings.download_concurrency);
         setSavedDownloadConcurrency(settings.download_concurrency);
         setSavedDownloadSpeedLimitKbps(settings.download_speed_limit_kbps);
-        setSpeedLimitMode(
-          settings.download_speed_limit_kbps > 0 ? "limited" : "unlimited"
-        );
+        const loadedSpeedLimitMode: SpeedLimitMode =
+          settings.download_smart_speed_limit_enabled
+            ? "smart"
+            : settings.download_speed_limit_kbps > 0
+              ? "limited"
+              : "unlimited";
+        setSpeedLimitMode(loadedSpeedLimitMode);
+        setSavedSpeedLimitMode(loadedSpeedLimitMode);
         setDownloadSpeedLimitKbps(
           settings.download_speed_limit_kbps > 0
             ? settings.download_speed_limit_kbps
             : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
+        );
+        setSmartSpeedLimitThreshold(
+          settings.download_smart_speed_limit_threshold
+        );
+        setSavedSmartSpeedLimitThreshold(
+          settings.download_smart_speed_limit_threshold
         );
         setDeleteTsTempDirAfterDownload(
           settings.delete_ts_temp_dir_after_download
@@ -445,40 +465,85 @@ export function SettingsModal({
     }
   };
 
-  const saveDownloadSpeedLimitValue = async (value: number | null) => {
-    const normalizedValue = Math.max(
-      1,
-      Math.trunc(value ?? DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS)
+  const saveSpeedLimitSettings = async (
+    nextMode: SpeedLimitMode,
+    value: number | null,
+    thresholdValue = smartSpeedLimitThreshold
+  ) => {
+    const normalizedThreshold = Math.max(
+      MIN_SMART_SPEED_LIMIT_THRESHOLD,
+      Math.trunc(thresholdValue ?? DEFAULT_SMART_SPEED_LIMIT_THRESHOLD)
     );
+    const normalizedValue =
+      nextMode === "unlimited"
+        ? 0
+        : Math.max(
+            1,
+            Math.trunc(value ?? DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS)
+          );
 
     if (
-      speedLimitMode === "limited" &&
-      savedDownloadSpeedLimitKbps === normalizedValue
+      savedSpeedLimitMode === nextMode &&
+      savedDownloadSpeedLimitKbps === normalizedValue &&
+      (nextMode !== "smart" ||
+        savedSmartSpeedLimitThreshold === normalizedThreshold)
     ) {
-      setDownloadSpeedLimitKbps(normalizedValue);
+      setSpeedLimitMode(nextMode);
+      setDownloadSpeedLimitKbps(
+        normalizedValue > 0
+          ? normalizedValue
+          : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
+      );
+      setSmartSpeedLimitThreshold(normalizedThreshold);
       return;
     }
 
-    setSpeedLimitMode("limited");
-    setDownloadSpeedLimitKbps(normalizedValue);
+    setSpeedLimitMode(nextMode);
+    setDownloadSpeedLimitKbps(
+      normalizedValue > 0
+        ? normalizedValue
+        : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
+    );
+    setSmartSpeedLimitThreshold(normalizedThreshold);
     setSavingSpeedLimit(true);
 
     try {
-      await setDownloadSpeedLimit(normalizedValue);
+      await setDownloadSpeedLimit(
+        normalizedValue,
+        nextMode === "smart",
+        normalizedThreshold
+      );
+      setSavedSpeedLimitMode(nextMode);
       setSavedDownloadSpeedLimitKbps(normalizedValue);
-      message.success(t("downloadSpeedLimitSaved"));
+      setSavedSmartSpeedLimitThreshold(normalizedThreshold);
+      message.success(
+        nextMode === "unlimited"
+          ? t("downloadSpeedLimitDisabled")
+          : nextMode === "smart"
+            ? t("smartSpeedLimitSaved")
+            : t("downloadSpeedLimitSaved")
+      );
     } catch (error) {
       message.error(t("failedToSaveDownloadSpeedLimit", { value0: formatSettingsError(error) }));
       const settings = await getAppSettings();
+      const loadedMode: SpeedLimitMode =
+        settings.download_smart_speed_limit_enabled
+          ? "smart"
+          : settings.download_speed_limit_kbps > 0
+            ? "limited"
+            : "unlimited";
+      setSavedSpeedLimitMode(loadedMode);
+      setSpeedLimitMode(loadedMode);
       setSavedDownloadSpeedLimitKbps(settings.download_speed_limit_kbps);
-      setSpeedLimitMode(
-        settings.download_speed_limit_kbps > 0 ? "limited" : "unlimited"
-      );
       setDownloadSpeedLimitKbps(
         settings.download_speed_limit_kbps > 0
           ? settings.download_speed_limit_kbps
           : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
       );
+      setSavedSmartSpeedLimitThreshold(
+        settings.download_smart_speed_limit_threshold
+      );
+      setSmartSpeedLimitThreshold(settings.download_smart_speed_limit_threshold);
     } finally {
       setSavingSpeedLimit(false);
     }
@@ -487,35 +552,13 @@ export function SettingsModal({
   const updateSpeedLimitMode = async (nextMode: SpeedLimitMode) => {
     if (nextMode === speedLimitMode) return;
 
-    if (nextMode === "unlimited") {
-      setSpeedLimitMode("unlimited");
-      setSavingSpeedLimit(true);
-      try {
-        await setDownloadSpeedLimit(0);
-        setSavedDownloadSpeedLimitKbps(0);
-        message.success(t("downloadSpeedLimitDisabled"));
-      } catch (error) {
-        message.error(t("failedToSaveDownloadSpeedLimit", { value0: formatSettingsError(error) }));
-        const settings = await getAppSettings();
-        setSavedDownloadSpeedLimitKbps(settings.download_speed_limit_kbps);
-        setSpeedLimitMode(
-          settings.download_speed_limit_kbps > 0 ? "limited" : "unlimited"
-        );
-        setDownloadSpeedLimitKbps(
-          settings.download_speed_limit_kbps > 0
-            ? settings.download_speed_limit_kbps
-            : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
-        );
-      } finally {
-        setSavingSpeedLimit(false);
-      }
-      return;
-    }
-
-    await saveDownloadSpeedLimitValue(
-      downloadSpeedLimitKbps !== null && downloadSpeedLimitKbps > 0
-        ? downloadSpeedLimitKbps
-        : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
+    await saveSpeedLimitSettings(
+      nextMode,
+      nextMode === "unlimited"
+        ? 0
+        : downloadSpeedLimitKbps !== null && downloadSpeedLimitKbps > 0
+          ? downloadSpeedLimitKbps
+          : DEFAULT_LIMITED_DOWNLOAD_SPEED_KBPS
     );
   };
 
@@ -803,10 +846,21 @@ export function SettingsModal({
       await saveDownloadConcurrencyValue(downloadConcurrency);
     }
     if (
-      speedLimitMode === "limited" &&
-      downloadSpeedLimitKbps !== savedDownloadSpeedLimitKbps
+      speedLimitMode !== savedSpeedLimitMode ||
+      (speedLimitMode !== "unlimited" &&
+        downloadSpeedLimitKbps !== savedDownloadSpeedLimitKbps) ||
+      (speedLimitMode === "smart" &&
+        Math.max(
+          MIN_SMART_SPEED_LIMIT_THRESHOLD,
+          Math.trunc(
+            smartSpeedLimitThreshold ?? DEFAULT_SMART_SPEED_LIMIT_THRESHOLD
+          )
+        ) !== savedSmartSpeedLimitThreshold)
     ) {
-      await saveDownloadSpeedLimitValue(downloadSpeedLimitKbps);
+      await saveSpeedLimitSettings(
+        speedLimitMode,
+        downloadSpeedLimitKbps
+      );
     }
 
     onClose();
@@ -1104,7 +1158,9 @@ export function SettingsModal({
               >
                 {speedLimitMode === "unlimited"
                   ? t("fullSpeed")
-                  : `≤ ${formatSpeedKbps(downloadSpeedLimitKbps)}`}
+                  : speedLimitMode === "smart"
+                    ? `${t("smart")} ≥ ${smartSpeedLimitThreshold ?? DEFAULT_SMART_SPEED_LIMIT_THRESHOLD} · ≤ ${formatSpeedKbps(downloadSpeedLimitKbps)}`
+                    : `≤ ${formatSpeedKbps(downloadSpeedLimitKbps)}`}
               </Tag>
             </div>
             <div
@@ -1137,6 +1193,14 @@ export function SettingsModal({
                   {
                     label: (
                       <Space size={6}>
+                        <ControlOutlined />
+                        {t("smart")}</Space>
+                    ),
+                    value: "smart",
+                  },
+                  {
+                    label: (
+                      <Space size={6}>
                         <DashboardOutlined />
                         {t("limited")}</Space>
                     ),
@@ -1144,8 +1208,35 @@ export function SettingsModal({
                   },
                 ]}
               />
-              {speedLimitMode === "limited" ? (
+              {speedLimitMode === "smart" ? (
                 <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <Space size={10} wrap>
+                    <Space size={8}>
+                      <Typography.Text>
+                        {t("smartSpeedLimitThreshold")}
+                      </Typography.Text>
+                      <InputNumber
+                        min={MIN_SMART_SPEED_LIMIT_THRESHOLD}
+                        precision={0}
+                        addonAfter={t("downloadTasks")}
+                        value={smartSpeedLimitThreshold ?? undefined}
+                        style={{ width: 180 }}
+                        disabled={loading || savingSpeedLimit}
+                        placeholder={t("enterSmartSpeedLimitThreshold")}
+                        onChange={(value) =>
+                          setSmartSpeedLimitThreshold(
+                            typeof value === "number" ? value : null
+                          )
+                        }
+                        onBlur={() => {
+                          void saveSpeedLimitSettings(
+                            "smart",
+                            downloadSpeedLimitKbps
+                          );
+                        }}
+                      />
+                    </Space>
+                  </Space>
                   <InputNumber
                     min={1}
                     precision={0}
@@ -1160,7 +1251,10 @@ export function SettingsModal({
                       )
                     }
                     onBlur={() => {
-                      void saveDownloadSpeedLimitValue(downloadSpeedLimitKbps);
+                      void saveSpeedLimitSettings(
+                        "smart",
+                        downloadSpeedLimitKbps
+                      );
                     }}
                   />
                   <Space size={6} wrap>
@@ -1179,7 +1273,65 @@ export function SettingsModal({
                           disabled={loading || savingSpeedLimit}
                           onClick={() => {
                             setDownloadSpeedLimitKbps(preset.value);
-                            void saveDownloadSpeedLimitValue(preset.value);
+                            void saveSpeedLimitSettings("smart", preset.value);
+                          }}
+                        >
+                          {preset.label}
+                        </Button>
+                      );
+                    })}
+                  </Space>
+                  <Typography.Text
+                    type="secondary"
+                    style={{ fontSize: 12, lineHeight: 1.6 }}
+                  >
+                    {t("smartSpeedLimitDescription", {
+                      value0:
+                        smartSpeedLimitThreshold ??
+                        DEFAULT_SMART_SPEED_LIMIT_THRESHOLD,
+                      value1: formatSpeedKbps(downloadSpeedLimitKbps),
+                    })}
+                  </Typography.Text>
+                </Space>
+              ) : speedLimitMode === "limited" ? (
+                <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <InputNumber
+                    min={1}
+                    precision={0}
+                    addonAfter="KB/s"
+                    value={downloadSpeedLimitKbps ?? undefined}
+                    style={{ width: "100%" }}
+                    disabled={loading || savingSpeedLimit}
+                    placeholder={t("enterDownloadSpeedLimit")}
+                    onChange={(value) =>
+                      setDownloadSpeedLimitKbps(
+                        typeof value === "number" ? value : null
+                      )
+                    }
+                    onBlur={() => {
+                      void saveSpeedLimitSettings(
+                        "limited",
+                        downloadSpeedLimitKbps
+                      );
+                    }}
+                  />
+                  <Space size={6} wrap>
+                    <Typography.Text
+                      type="secondary"
+                      style={{ fontSize: 12, marginRight: 2 }}
+                    >
+                      {t("presets")}</Typography.Text>
+                    {SPEED_LIMIT_PRESETS.map((preset) => {
+                      const active = downloadSpeedLimitKbps === preset.value;
+                      return (
+                        <Button
+                          key={preset.value}
+                          size="small"
+                          type={active ? "primary" : "default"}
+                          disabled={loading || savingSpeedLimit}
+                          onClick={() => {
+                            setDownloadSpeedLimitKbps(preset.value);
+                            void saveSpeedLimitSettings("limited", preset.value);
                           }}
                         >
                           {preset.label}
