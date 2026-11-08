@@ -29,8 +29,10 @@ import {
 } from "../services/api";
 import {
   applyFilenameCleanupRules,
+  cleanDownloadUrlAfterFilenameCleanup,
   deriveFilenameFromUrl,
   inferDirectFileTypeFromUrl,
+  resolveFilenameCleanupSourceUrl,
   type CreateDownloadParams,
   type DownloadMode,
   type DownloadSourceKind,
@@ -113,7 +115,8 @@ export function BatchDownloadModal({
       initialRawInput || "",
       initialFileTypes,
       initialRawInput,
-      []
+      [],
+      initialExtraHeaders
     );
     setParsedItems(nextItems);
     setSelectedRowKeys(nextItems.map((item) => item.key));
@@ -124,11 +127,18 @@ export function BatchDownloadModal({
       rawInput,
       initialFileTypes,
       initialRawInput,
-      filenameCleanupRules
+      filenameCleanupRules,
+      extraHeaders
     );
     setParsedItems(nextItems);
     setSelectedRowKeys(nextItems.map((item) => item.key));
-  }, [filenameCleanupRules, initialFileTypes, initialRawInput, rawInput]);
+  }, [
+    extraHeaders,
+    filenameCleanupRules,
+    initialFileTypes,
+    initialRawInput,
+    rawInput,
+  ]);
 
   const selectedKeySet = new Set(selectedRowKeys);
   const selectedItems = parsedItems.filter((item) => selectedKeySet.has(item.key));
@@ -231,7 +241,11 @@ export function BatchDownloadModal({
         item.filename?.trim() ||
         (item.sourceKind === "inline_dash_json"
           ? INLINE_DASH_JSON_DISPLAY()
-          : cleanBatchFilenameFromUrl(item.url, filenameCleanupRules)) ||
+          : cleanBatchFilenameFromUrl(
+              item.url,
+              filenameCleanupRules,
+              extraHeaders
+            )) ||
         t("videoPreview2");
       const previewUrl = `/?${new URLSearchParams({
         view: "preview",
@@ -285,7 +299,11 @@ export function BatchDownloadModal({
           url:
             item.sourceKind === "inline_dash_json"
               ? INLINE_DASH_JSON_PLACEHOLDER_URL
-              : item.url,
+              : cleanDownloadUrlAfterFilenameCleanup(
+                  item.url,
+                  filenameCleanupRules,
+                  resolveFilenameCleanupSourceUrl(item.url, extraHeaders)
+                ),
           filename: item.filename || undefined,
           output_dir: outputDir || undefined,
           extra_headers: extraHeaders.trim() || undefined,
@@ -439,7 +457,8 @@ export function BatchDownloadModal({
                                   ? current.filename
                                   : cleanBatchFilenameFromUrl(
                                       nextUrl,
-                                      filenameCleanupRules
+                                      filenameCleanupRules,
+                                      extraHeaders
                                     ) || undefined,
                               }));
                             }}
@@ -564,7 +583,8 @@ function parseBatchInput(
   rawInput: string,
   initialFileTypes?: Array<FileType | undefined>,
   initialRawInput?: string,
-  cleanupRules: FilenameCleanupRule[] = []
+  cleanupRules: FilenameCleanupRule[] = [],
+  extraHeaders?: string
 ): ParsedBatchItem[] {
   const initialLines = initialRawInput?.split(/\r?\n/);
   return rawInput
@@ -578,7 +598,13 @@ function parseBatchInput(
           ? initialFileTypes?.[lineNumber - 1]
           : undefined;
 
-      return parseBatchLine(line, lineNumber, initialFileType, cleanupRules);
+      return parseBatchLine(
+        line,
+        lineNumber,
+        initialFileType,
+        cleanupRules,
+        extraHeaders
+      );
     });
 }
 
@@ -586,7 +612,8 @@ function parseBatchLine(
   rawLine: string,
   lineNumber: number,
   initialFileType?: FileType,
-  cleanupRules: FilenameCleanupRule[] = []
+  cleanupRules: FilenameCleanupRule[] = [],
+  extraHeaders?: string
 ): ParsedBatchItem {
   const trimmed = rawLine.trim();
   if (trimmed.startsWith("{")) {
@@ -598,7 +625,8 @@ function parseBatchLine(
       filename:
         applyFilenameCleanupRules(
           deriveFilenameFromInlineDashJson(trimmed) ?? "",
-          cleanupRules
+          cleanupRules,
+          resolveFilenameCleanupSourceUrl(trimmed, extraHeaders)
         ) || undefined,
       filenameEdited: false,
       mode: "dash",
@@ -620,7 +648,8 @@ function parseBatchLine(
       : directFileType
         ? "direct"
         : "hls";
-  const filename = cleanBatchFilenameFromUrl(url, cleanupRules) || undefined;
+  const filename =
+    cleanBatchFilenameFromUrl(url, cleanupRules, extraHeaders) || undefined;
 
   return normalizeParsedItem({
     key: `batch-${lineNumber}`,
@@ -641,9 +670,14 @@ function parseBatchLine(
 
 function cleanBatchFilenameFromUrl(
   url: string,
-  cleanupRules: FilenameCleanupRule[]
+  cleanupRules: FilenameCleanupRule[],
+  extraHeaders?: string
 ): string {
-  return applyFilenameCleanupRules(deriveFilenameFromUrl(url), cleanupRules);
+  return applyFilenameCleanupRules(
+    deriveFilenameFromUrl(url),
+    cleanupRules,
+    resolveFilenameCleanupSourceUrl(url, extraHeaders)
+  );
 }
 
 function looksLikeDashUrl(url: string): boolean {

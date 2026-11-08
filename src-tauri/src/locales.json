@@ -2522,22 +2522,86 @@
   "tooManyFilenameCleanupRules": {
     "en": "Too many filename cleanup rules.",
     "zh-CN": "文件名清洗规则数量过多。",
-    "zh-TW": "檔名清理規則數量過多。"
+    "zh-TW": "檔名清理規則數量過多。",
+    "ja": "ファイル名整理ルールが多すぎます。",
+    "ko": "파일명 정리 규칙이 너무 많습니다.",
+    "es": "Hay demasiadas reglas de limpieza de nombres.",
+    "fr": "Trop de règles de nettoyage des noms.",
+    "de": "Zu viele Dateinamenbereinigungsregeln.",
+    "pt-BR": "Há muitas regras de limpeza de nomes.",
+    "ru": "Слишком много правил очистки имён файлов."
   },
   "filenameCleanupPatternRequired": {
     "en": "Enter match text for every filename cleanup rule.",
     "zh-CN": "请为每条文件名清洗规则填写匹配文本。",
-    "zh-TW": "請為每條檔名清理規則填寫匹配文字。"
+    "zh-TW": "請為每條檔名清理規則填寫匹配文字。",
+    "ja": "各ファイル名整理ルールに一致文字列を入力してください。",
+    "ko": "각 파일명 정리 규칙에 일치 텍스트를 입력하세요.",
+    "es": "Introduce el texto de coincidencia para cada regla de limpieza.",
+    "fr": "Saisissez le texte à rechercher pour chaque règle de nettoyage.",
+    "de": "Gib für jede Dateinamenbereinigungsregel den Suchtext ein.",
+    "pt-BR": "Informe o texto de correspondência para cada regra de limpeza.",
+    "ru": "Укажите текст для поиска в каждом правиле очистки имён."
   },
   "filenameCleanupPatternTooLong": {
     "en": "Filename cleanup match text is too long.",
     "zh-CN": "文件名清洗匹配文本过长。",
-    "zh-TW": "檔名清理匹配文字過長。"
+    "zh-TW": "檔名清理匹配文字過長。",
+    "ja": "ファイル名整理の一致文字列が長すぎます。",
+    "ko": "파일명 정리 일치 텍스트가 너무 깁니다.",
+    "es": "El texto de coincidencia de la limpieza es demasiado largo.",
+    "fr": "Le texte à rechercher du nettoyage est trop long.",
+    "de": "Der Suchtext der Dateinamenbereinigung ist zu lang.",
+    "pt-BR": "O texto de correspondência da limpeza é muito longo.",
+    "ru": "Текст для поиска в очистке имён слишком длинный."
   },
   "filenameCleanupReplacementTooLong": {
     "en": "Filename cleanup replacement text is too long.",
     "zh-CN": "文件名清洗替换文本过长。",
-    "zh-TW": "檔名清理取代文字過長。"
+    "zh-TW": "檔名清理取代文字過長。",
+    "ja": "ファイル名整理の置換文字列が長すぎます。",
+    "ko": "파일명 정리 바꿀 텍스트가 너무 깁니다.",
+    "es": "El texto de sustitución de la limpieza es demasiado largo.",
+    "fr": "Le texte de remplacement du nettoyage est trop long.",
+    "de": "Der Ersetzungstext der Dateinamenbereinigung ist zu lang.",
+    "pt-BR": "O texto de substituição da limpeza é muito longo.",
+    "ru": "Текст замены в очистке имён слишком длинный."
+  },
+  "filenameCleanupSiteRequired": {
+    "en": "Site rules require a source site.",
+    "zh-CN": "网站规则需要填写来源网站。",
+    "zh-TW": "網站規則需要填寫來源網站。",
+    "ja": "サイト別ルールには配信サイトが必要です。",
+    "ko": "사이트 규칙에는 출처 사이트가 필요합니다.",
+    "es": "Las reglas por sitio requieren un sitio de origen.",
+    "fr": "Les règles par site nécessitent un site source.",
+    "de": "Website-Regeln benötigen eine Quellwebsite.",
+    "pt-BR": "Regras por site exigem um site de origem.",
+    "ru": "Для правил сайта укажите сайт-источник."
+  },
+  "filenameCleanupSiteTooLong": {
+    "en": "Filename cleanup source site is too long.",
+    "zh-CN": "文件名清洗规则的来源网站过长。",
+    "zh-TW": "檔名清理規則的來源網站過長。",
+    "ja": "ファイル名整理の配信サイトが長すぎます。",
+    "ko": "파일명 정리 출처 사이트가 너무 깁니다.",
+    "es": "El sitio de origen de la limpieza es demasiado largo.",
+    "fr": "Le site source du nettoyage est trop long.",
+    "de": "Die Quellwebsite der Dateinamenbereinigung ist zu lang.",
+    "pt-BR": "O site de origem da limpeza é muito longo.",
+    "ru": "Сайт-источник для очистки имён слишком длинный."
+  },
+  "invalidFilenameCleanupRegex": {
+    "en": "Invalid regular expression in filename cleanup rule.",
+    "zh-CN": "文件名清洗规则中的正则表达式无效。",
+    "zh-TW": "檔名清理規則中的正規表達式無效。",
+    "ja": "ファイル名整理ルールの正規表現が無効です。",
+    "ko": "파일명 정리 규칙의 정규식이 올바르지 않습니다.",
+    "es": "Expresión regular no válida en la regla de limpieza.",
+    "fr": "Expression régulière non valide dans la règle de nettoyage.",
+    "de": "Ungültiger regulärer Ausdruck in der Dateinamenbereinigungsregel.",
+    "pt-BR": "Expressão regular inválida na regra de limpeza.",
+    "ru": "Недопустимое регулярное выражение в правиле очистки имён."
   },
   "downloadShutdownCountdownActive": {
     "en": "The shutdown countdown is already active. Cancel it first.",

@@ -119,11 +119,23 @@ body,
 }
 
 .settings-modal-tabs .ant-tabs-content-holder {
-  height: 400px;
+  height: min(520px, calc(100vh - 220px));
+  min-height: 360px;
   overflow-y: auto;
   margin-left: 20px;
   padding-left: 20px;
   border-left: 1px solid var(--app-table-border);
+}
+
+.filename-cleanup-rule-row {
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.filename-cleanup-rule-row:hover,
+.filename-cleanup-rule-row:focus-visible {
+  background: var(--app-table-border);
 }
 
 .toolbar-download-actions .ant-btn {

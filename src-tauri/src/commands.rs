@@ -94,16 +94,32 @@ pub async fn create_download(
         .filename
         .clone()
         .filter(|name| !name.trim().is_empty());
-    let filename = if let Some(filename) = provided_filename {
-        normalize_download_filename(filename)
+    let settings = persistence::load_settings(&app_handle).await;
+    let cleanup_source_url = filename_cleanup_source_from_headers(
+        &params.source_text.as_deref().unwrap_or(&params.url),
+        &request_headers,
+    )
+        .or_else(|| {
+            params
+                .source_text
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| params.url.clone());
+    let cleanup_result = apply_filename_cleanup_rules_with_match(
+        &derive_filename_from_url(&params.url),
+        &settings.filename_cleanup_rules,
+        Some(&cleanup_source_url),
+    );
+    let task_url = if cleanup_result.matched {
+        remove_title_query_parameter(&params.url)
     } else {
-        let settings = persistence::load_settings(&app_handle).await;
-        let derived = apply_filename_cleanup_rules(
-            &derive_filename_from_url(&params.url),
-            &settings.filename_cleanup_rules,
-        );
-        normalize_download_filename(derived)
+        params.url.clone()
     };
+    let filename = provided_filename
+        .map(normalize_download_filename)
+        .unwrap_or_else(|| normalize_download_filename(cleanup_result.filename));
     let filename = if file_type.is_direct_download() {
         normalize_direct_download_filename(filename, file_type)
     } else {
@@ -118,7 +134,7 @@ pub async fn create_download(
     if file_type.is_direct_download() {
         let task = DownloadTask {
             id: id.clone(),
-            url: params.url.clone(),
+            url: task_url.clone(),
             source_kind: params.source_kind,
             source_text: params.source_text.clone(),
             filename: filename.clone(),
@@ -169,9 +185,9 @@ pub async fn create_download(
         Ok(persistence::task_to_summary(&task))
     } else if file_type == FileType::Dash {
         let source_text = normalized_dash_source_text(&params)?;
-        let task_url = dash_task_url(&params.url, source_text.as_deref(), params.source_kind);
+        let dash_task_url = dash_task_url(&task_url, source_text.as_deref(), params.source_kind);
         let dash_source =
-            dash_source_from_parts(&params.url, source_text.as_deref(), params.source_kind)?;
+            dash_source_from_parts(&task_url, source_text.as_deref(), params.source_kind)?;
         let prepared = downloader::prepare_dash_download(
             &client,
             &dash_source,
@@ -185,7 +201,7 @@ pub async fn create_download(
             .to_string();
         let task = DownloadTask {
             id: id.clone(),
-            url: task_url,
+            url: dash_task_url,
             source_kind: params.source_kind,
             source_text,
             filename: filename.clone(),
@@ -238,7 +254,7 @@ pub async fn create_download(
     } else {
         match downloader::prepare_hls_download(
             &client,
-            &params.url,
+            &task_url,
             &request_headers,
             params.hls_selection.as_ref(),
         )
@@ -247,7 +263,7 @@ pub async fn create_download(
             downloader::PreparedHlsDownload::Single(prepared) => {
                 let task = DownloadTask {
                     id: id.clone(),
-                    url: params.url.clone(),
+                    url: task_url.clone(),
                     source_kind: params.source_kind,
                     source_text: params.source_text.clone(),
                     filename: filename.clone(),
@@ -307,7 +323,7 @@ pub async fn create_download(
                     .to_string();
                 let task = DownloadTask {
                     id: id.clone(),
-                    url: params.url.clone(),
+                    url: task_url.clone(),
                     source_kind: params.source_kind,
                     source_text: params.source_text.clone(),
                     filename: filename.clone(),
@@ -1295,6 +1311,29 @@ fn sanitize_filename_cleanup_rule_list(
             return Err(AppError::InvalidInput(
                 crate::i18n::tr("filenameCleanupReplacementTooLong").to_string(),
             ));
+        }
+        if rule.enabled && rule.scope == FilenameCleanupScope::Site {
+            let site = normalize_filename_cleanup_site(&rule.site);
+            if site.is_empty() {
+                return Err(AppError::InvalidInput(
+                    crate::i18n::tr("filenameCleanupSiteRequired").to_string(),
+                ));
+            }
+            if site.chars().count() > MAX_FILENAME_CLEANUP_SITE_CHARS {
+                return Err(AppError::InvalidInput(
+                    crate::i18n::tr("filenameCleanupSiteTooLong").to_string(),
+                ));
+            }
+        }
+        if rule.enabled && rule.match_type == FilenameCleanupMatchType::Regex {
+            regex::RegexBuilder::new(&rule.pattern)
+                .case_insensitive(!rule.case_sensitive)
+                .build()
+                .map_err(|_| {
+                    AppError::InvalidInput(
+                        crate::i18n::tr("invalidFilenameCleanupRegex").to_string(),
+                    )
+                })?;
         }
     }
 
@@ -3353,6 +3392,24 @@ async fn start_hls_bundle_download_worker(
 }
 
 fn derive_filename_from_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.starts_with('{') {
+        return serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .and_then(|value| {
+                ["title", "name", "filename", "file", "videoTitle"]
+                    .into_iter()
+                    .find_map(|key| {
+                        value
+                            .get(key)
+                            .and_then(|value| value.as_str())
+                            .map(|value| normalize_download_filename(value.to_string()))
+                    })
+            })
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "download".to_string());
+    }
+
     url::Url::parse(url)
         .ok()
         .and_then(|u| {
@@ -3550,6 +3607,28 @@ fn parse_request_headers(raw: Option<&str>) -> Result<RequestHeaders, AppError> 
     }
 
     Ok(headers)
+}
+
+fn filename_cleanup_source_from_headers(
+    fallback: &str,
+    headers: &RequestHeaders,
+) -> Option<String> {
+    ["referer", "origin"]
+        .into_iter()
+        .find_map(|name| {
+            headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| {
+                    value
+                        .trim()
+                        .replace("\\:", ":")
+                        .trim_end_matches('\\')
+                        .trim()
+                        .to_string()
+                })
+        })
+        .or_else(|| (!fallback.trim().is_empty()).then(|| fallback.to_string()))
 }
 
 fn normalize_download_filename(name: String) -> String {
@@ -4070,7 +4149,7 @@ pub async fn create_live_record(
     state: State<'_, AppState>,
     params: CreateLiveRecordParams,
 ) -> Result<LiveRecordSummary, AppError> {
-    let url = params.url.trim().to_string();
+    let mut url = params.url.trim().to_string();
     if url.is_empty() {
         return Err(AppError::InvalidInput("直播地址不能为空".into()));
     }
@@ -4098,13 +4177,27 @@ pub async fn create_live_record(
         state.default_download_dir.lock().await.clone()
     };
 
-    let filename = normalize_live_filename(
-        params
-            .filename
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| derive_filename_from_url(&url)),
+    let settings = persistence::load_settings(&app_handle).await;
+    let cleanup_source_url =
+        filename_cleanup_source_from_headers(&url, &request_headers)
+            .unwrap_or_else(|| url.clone());
+    let cleanup_result = apply_filename_cleanup_rules_with_match(
+        &derive_filename_from_url(&url),
+        &settings.filename_cleanup_rules,
+        Some(&cleanup_source_url),
     );
+    if cleanup_result.matched {
+        url = remove_title_query_parameter(&url);
+    }
+    let filename = if let Some(filename) = params
+        .filename
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+    {
+        normalize_live_filename(filename)
+    } else {
+        normalize_live_filename(cleanup_result.filename)
+    };
 
     // 归一化分段配置，并把本次选择回写为下次的默认值。
     let split = params.split.and_then(|config| config.sanitized());
@@ -5201,6 +5294,65 @@ mod tests {
                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
             )]
         );
+    }
+
+    #[test]
+    fn filename_cleanup_uses_referer_and_removes_title_after_site_rule_match() {
+        let url = "https://cdn.example.com/video.m3u8?title=%5B%E4%B8%AD%E5%AD%97%5DMIAB-139+%EF%BD%9E%E8%80%81%E5%85%AC%E7%9A%84%E4%B8%8A%E5%8F%B8%E8%A2%AB%E5%B9%B2%E5%88%B0%E9%AB%98%E6%BD%AE%E7%9A%84%E6%9C%80%E5%BC%B7%E7%BE%8E%E5%A5%B3%EF%BD%9E%E8%BE%AD%E6%8E%89%E6%90%9C%E6%9F%A5%E5%AE%98%E6%88%90%E7%82%BA%E8%80%81%E5%A9%86%E4%BA%86%E5%8D%BB%E2%80%A6+%E6%A3%AE%E6%BE%A4%E5%8F%AF%E5%A5%88+18AV%E5%9C%A8%E7%B7%9AH%E6%88%90%E4%BA%BA%E5%BD%B1%E7%89%87-18AV%E8%90%AC%E9%83%A8%E5%85%8D%E8%B2%BB%E5%BD%B1%E7%89%87%E8%88%87%E6%82%A8%E5%88%86%E4%BA%AB%2C%E5%85%8D%E8%B2%BBAV%E5%9C%A8%E7%B7%9A%E7%9C%8B%2C%E7%B7%9A%E4%B8%8Aa%E7%89%87%E7%9B%B4%E6%92%AD";
+        let headers = parse_request_headers(Some(
+            "referer:https://18av.mm-cg.com/zh/chinese_content/68452/MIAB-139.html\norigin:https://18av.mm-cg.com",
+        ))
+        .unwrap();
+        let source = filename_cleanup_source_from_headers(url, &headers).unwrap();
+        let rules = vec![FilenameCleanupRule {
+            id: "site".to_string(),
+            scope: FilenameCleanupScope::Site,
+            site: "18av.mm-cg.com".to_string(),
+            match_type: FilenameCleanupMatchType::Regex,
+            pattern: r"(\[.+\])?(.+)18AV在線H成人影片-18AV萬部免費影片與您分享,免費AV在線看,線上a片直播(\..+)?".to_string(),
+            replacement: "$2$3".to_string(),
+            ..FilenameCleanupRule::default()
+        }];
+
+        let result = apply_filename_cleanup_rules_with_match(
+            &derive_filename_from_url(url),
+            &rules,
+            Some(&source),
+        );
+
+        assert!(result.matched);
+        assert_eq!(
+            result.filename,
+            "MIAB-139 ～老公的上司被干到高潮的最強美女～辭掉搜查官成為老婆了卻… 森澤可奈"
+        );
+        assert!(!remove_title_query_parameter(url).contains("title="));
+    }
+
+    #[test]
+    fn filename_cleanup_global_rule_also_removes_title_query_parameter() {
+        let url = "https://example.com/video.m3u8?title=DLDSS-559+-+Jable.TV+_+%E5%85%8D%E8%B2%BB%E9%AB%98%E6%B8%85AV%E5%9C%A8%E7%B7%9A%E7%9C%8B+_+J%E7%89%87+AV%E7%9C%8B%E5%88%B0%E9%A3%BD&id=42";
+        let rules = vec![FilenameCleanupRule {
+            id: "global".to_string(),
+            scope: FilenameCleanupScope::Global,
+            pattern: " - Jable.TV | 免費高清AV在線看 | J片 AV看到飽".to_string(),
+            replacement: String::new(),
+            ..FilenameCleanupRule::default()
+        }];
+
+        let result = apply_filename_cleanup_rules_with_match(
+            &derive_filename_from_url(url),
+            &rules,
+            Some(url),
+        );
+        let cleaned_url = if result.matched {
+            remove_title_query_parameter(url)
+        } else {
+            url.to_string()
+        };
+
+        assert!(result.matched);
+        assert_eq!(result.filename, "DLDSS-559");
+        assert_eq!(cleaned_url, "https://example.com/video.m3u8?id=42");
     }
 
     fn unique_temp_path(name: &str) -> PathBuf {

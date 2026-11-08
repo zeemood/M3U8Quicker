@@ -80,6 +80,10 @@ import type {
 } from "../types/settings";
 import { UpdateModal } from "./UpdateModal";
 import { FilenameCleanupRulesEditor } from "./FilenameCleanupRulesEditor";
+import {
+  normalizeFilenameCleanupSite,
+  validateFilenameCleanupRule,
+} from "../types";
 
 const MIN_DOWNLOAD_CONCURRENCY = 1;
 const MAX_DOWNLOAD_CONCURRENCY = 64;
@@ -126,7 +130,14 @@ type SpeedLimitMode = "unlimited" | "limited";
 
 interface SettingsModalProps {
   open: boolean;
-  initialTab?: "general" | "network" | "download" | "live" | "ffmpeg" | "about";
+  initialTab?:
+    | "general"
+    | "network"
+    | "download"
+    | "filenameCleanup"
+    | "live"
+    | "ffmpeg"
+    | "about";
   themeMode: ThemeMode;
   zoomFactor: number;
   updateAvailable?: boolean;
@@ -217,7 +228,13 @@ export function SettingsModal({
     }
   };
   const [activeTab, setActiveTab] = useState<
-    "general" | "network" | "download" | "live" | "ffmpeg" | "about"
+    | "general"
+    | "network"
+    | "download"
+    | "filenameCleanup"
+    | "live"
+    | "ffmpeg"
+    | "about"
   >(initialTab);
   const [proxySettings, setProxySettingsState] = useState<ProxySettings | null>(
     null
@@ -795,22 +812,35 @@ export function SettingsModal({
     onClose();
   };
 
-  const handleSaveFilenameCleanupRules = async () => {
-    if (
-      filenameCleanupRules.some(
-        (rule) => rule.enabled && !rule.pattern.trim()
-      )
-    ) {
-      message.error(t("filenameCleanupPatternRequired"));
-      return;
+  const handleSaveFilenameCleanupRules = async (
+    rulesToSave: FilenameCleanupRule[] = filenameCleanupRules
+  ) => {
+    for (const rule of rulesToSave) {
+      const validation = validateFilenameCleanupRule(rule);
+      if (validation === "pattern") {
+        message.error(t("filenameCleanupPatternRequired"));
+        return;
+      }
+      if (validation === "site") {
+        message.error(t("filenameCleanupSiteRequired"));
+        return;
+      }
+      if (validation === "regex") {
+        message.error(t("filenameCleanupInvalidRegex"));
+        return;
+      }
     }
 
     setSavingFilenameCleanupRules(true);
     try {
       const saved = await setFilenameCleanupRules(
-        filenameCleanupRules.map((rule) => ({
+        rulesToSave.map((rule) => ({
           ...rule,
           pattern: rule.pattern.trim(),
+          site:
+            rule.scope === "site"
+              ? normalizeFilenameCleanupSite(rule.site ?? "")
+              : "",
         }))
       );
       setFilenameCleanupRulesState(saved);
@@ -1195,15 +1225,6 @@ export function SettingsModal({
               </Space>
             </Space>
           </Space>
-          <Space direction="vertical" size={10} style={{ width: "100%" }}>
-            <SectionTitle>{t("filenameCleanupRules")}</SectionTitle>
-            <FilenameCleanupRulesEditor
-              rules={filenameCleanupRules}
-              saving={savingFilenameCleanupRules}
-              onChange={setFilenameCleanupRulesState}
-              onSave={() => void handleSaveFilenameCleanupRules()}
-            />
-          </Space>
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <SectionTitle>{t("requestTimeouts")}</SectionTitle>
             <div
@@ -1272,6 +1293,22 @@ export function SettingsModal({
               />
             </div>
           </Space>
+        </Space>
+      ),
+    },
+    {
+      key: "filenameCleanup",
+      label: t("filenameCleanupSettings"),
+      children: (
+        <Space direction="vertical" size={18} style={{ width: "100%" }}>
+          <FilenameCleanupRulesEditor
+            rules={filenameCleanupRules}
+            saving={savingFilenameCleanupRules}
+            onChange={setFilenameCleanupRulesState}
+            onSave={(nextRules) =>
+              void handleSaveFilenameCleanupRules(nextRules)
+            }
+          />
         </Space>
       ),
     },
@@ -1685,7 +1722,11 @@ export function SettingsModal({
         onOk={() => void handleConfirm()}
         okText={t("ok")}
         cancelButtonProps={{ style: { display: "none" } }}
-        width={["zh-CN", "zh-TW", "ja", "ko"].includes(currentLanguage()) ? 680 : 800}
+        width={
+          ["zh-CN", "zh-TW", "ja", "ko"].includes(currentLanguage())
+            ? 860
+            : 940
+        }
         confirmLoading={
           loading ||
           savingProxy ||
@@ -1696,7 +1737,8 @@ export function SettingsModal({
           savingUserAgent ||
           savingTimeouts ||
           savingLiveSettings ||
-          savingCloseToTray
+          savingCloseToTray ||
+          savingFilenameCleanupRules
         }
       >
         <Tabs
@@ -1709,6 +1751,7 @@ export function SettingsModal({
                 | "general"
                 | "network"
                 | "download"
+                | "filenameCleanup"
                 | "live"
                 | "ffmpeg"
                 | "about"
