@@ -276,6 +276,9 @@ function App({
         content: t("downloadShutdownGlobalConfirmation"),
         okText: t("openShutdownTool"),
         cancelText: t("cancelShutdown"),
+        closable: false,
+        maskClosable: false,
+        keyboard: false,
         onOk: () => {
           setActiveTool("shutdown-after-downloads");
           setToolModalOpen(true);
@@ -305,6 +308,7 @@ function App({
     });
 
     void listen("download-shutdown-requested", () => {
+      Modal.destroyAll();
       message.success(t("systemShutdownRequested"));
     }).then((fn) => {
       unlistenRequested = fn;

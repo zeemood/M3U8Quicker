@@ -207,17 +207,67 @@ async fn count_active_downloads(
 
 #[cfg(target_os = "windows")]
 async fn request_system_shutdown() -> Result<(), AppError> {
-    let status = tokio::process::Command::new("shutdown")
-        .args(["/s", "/t", "0"])
-        .status()
-        .await?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(AppError::Internal(
-            crate::i18n::tr("systemShutdownCommandFailed").to_string(),
-        ))
+    let shutdown_error = match run_windows_hidden_command(
+        "shutdown.exe",
+        &["/s", "/f", "/t", "0"],
+    )
+    .await
+    {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+
+    match run_windows_hidden_command(
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Stop-Computer -Force",
+        ],
+    )
+    .await
+    {
+        Ok(()) => Ok(()),
+        Err(fallback_error) => Err(AppError::Internal(format!(
+            "{}: shutdown.exe: {}; powershell.exe: {}",
+            crate::i18n::tr("systemShutdownCommandFailed"),
+            shutdown_error,
+            fallback_error
+        ))),
     }
+}
+
+#[cfg(target_os = "windows")]
+async fn run_windows_hidden_command(
+    program: &str,
+    args: &[&str],
+) -> Result<(), String> {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let output = tokio::process::Command::new(program)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .await
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let detail = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        "no command output".to_string()
+    };
+    Err(format!(
+        "exit code {:?}: {detail}",
+        output.status.code()
+    ))
 }
 
 #[cfg(target_os = "macos")]
