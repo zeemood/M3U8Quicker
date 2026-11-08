@@ -1234,6 +1234,8 @@ pub async fn get_app_settings(
         live_retry_hls_ms,
         live_retry_flv_ms,
     ) = live_recorder::live_settings_snapshot();
+    let (smart_speed_limit_enabled, smart_speed_limit_threshold) =
+        state.download_rate_limiter.smart_config().await;
 
     Ok(AppSettings {
         language: Some(crate::i18n::current_language()),
@@ -1242,6 +1244,8 @@ pub async fn get_app_settings(
         proxy: state.proxy_settings.lock().await.clone(),
         download_concurrency: *state.max_concurrent_segments.lock().await,
         download_speed_limit_kbps: state.download_rate_limiter.limit_kbps().await,
+        download_smart_speed_limit_enabled: smart_speed_limit_enabled,
+        download_smart_speed_limit_threshold: smart_speed_limit_threshold,
         preview_columns: *state.preview_columns.lock().await,
         preview_count: *state.preview_count.lock().await,
         preview_thumbnail_width: *state.preview_thumbnail_width.lock().await,
@@ -1562,16 +1566,31 @@ pub async fn set_download_speed_limit(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     download_speed_limit_kbps: u64,
+    download_smart_speed_limit_enabled: bool,
+    download_smart_speed_limit_threshold: usize,
 ) -> Result<(), AppError> {
     let normalized_limit = normalize_download_speed_limit_kbps(download_speed_limit_kbps);
+    let normalized_threshold =
+        normalize_download_smart_speed_limit_threshold(download_smart_speed_limit_threshold);
+    let normalized_limit = if download_smart_speed_limit_enabled {
+        normalized_limit.max(1)
+    } else {
+        normalized_limit
+    };
 
     state
         .download_rate_limiter
-        .set_limit_kbps(normalized_limit)
+        .set_config(
+            normalized_limit,
+            download_smart_speed_limit_enabled,
+            normalized_threshold,
+        )
         .await;
 
     persistence::update_settings(&app_handle, |settings| {
         settings.download_speed_limit_kbps = normalized_limit;
+        settings.download_smart_speed_limit_enabled = download_smart_speed_limit_enabled;
+        settings.download_smart_speed_limit_threshold = normalized_threshold;
     })
     .await;
 
