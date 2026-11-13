@@ -8,6 +8,7 @@
     "dev:desktop": "node .vscode/tauri-dev.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:segment-grid": "node scripts/test-segment-grid.mjs",
     "test:i18n": "node --test scripts/test-i18n.mjs",
     "preview": "vite preview",
     "tauri": "tauri"

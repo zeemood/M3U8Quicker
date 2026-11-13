@@ -41,6 +41,7 @@ import {
   isDirectFileType,
 } from "../types";
 import { getTaskReferer, openFileLocation, openUrl } from "../services/api";
+import { DownloadSegmentGrid } from "./DownloadSegmentGrid";
 
 interface CancelLabels {
   title?: string;
@@ -48,8 +49,6 @@ interface CancelLabels {
   okText?: string;
   cancelText?: string;
 }
-
-const MAX_RENDERED_SEGMENT_CHIPS = 400;
 
 interface DownloadListProps {
   downloads: DownloadTaskSummary[];
@@ -115,97 +114,6 @@ function calculatePercentage(record: DownloadTaskSummary): number {
     return 0;
   }
   return (record.completed_segments / record.total_segments) * 100;
-}
-
-function renderSegmentGrid(segmentState: DownloadTaskSegmentState) {
-  const completedSet = new Set(segmentState.completed_segment_indices);
-  const failedSet = new Set(segmentState.failed_segment_indices);
-  const total = segmentState.total_segments;
-  let start = 1;
-  let end = total;
-
-  if (total > MAX_RENDERED_SEGMENT_CHIPS) {
-    let anchor = Number.POSITIVE_INFINITY;
-    for (const failedIndex of failedSet) {
-      anchor = Math.min(anchor, failedIndex);
-    }
-    if (!Number.isFinite(anchor)) {
-      anchor = total;
-      for (let index = 1; index <= total; index += 1) {
-        if (!completedSet.has(index) && !failedSet.has(index)) {
-          anchor = index;
-          break;
-        }
-      }
-    }
-
-    start = Math.max(
-      1,
-      anchor - Math.floor(MAX_RENDERED_SEGMENT_CHIPS / 2)
-    );
-    end = Math.min(total, start + MAX_RENDERED_SEGMENT_CHIPS - 1);
-    start = Math.max(1, end - MAX_RENDERED_SEGMENT_CHIPS + 1);
-  }
-
-  const segmentItems = Array.from(
-    { length: Math.max(0, end - start + 1) },
-    (_, index) => start + index
-  );
-
-  return (
-    <>
-      {total > MAX_RENDERED_SEGMENT_CHIPS ? (
-        <Typography.Text
-          type="secondary"
-          style={{ fontSize: 12, marginBottom: 6 }}
-        >
-          {t("segmentRangeSummary", {
-            value0: start,
-            value1: end,
-            value2: total,
-          })}
-        </Typography.Text>
-      ) : null}
-      <div
-        className="segment-grid"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, minmax(36px, max-content))",
-          gap: 6,
-          maxHeight: 220,
-          overflowY: "auto",
-          paddingRight: 18,
-        }}
-      >
-        {segmentItems.map((segmentNumber) => {
-          const completed = completedSet.has(segmentNumber);
-          const failed = failedSet.has(segmentNumber);
-          const segmentClassName = completed
-            ? "segment-chip segment-chip-completed"
-            : failed
-              ? "segment-chip segment-chip-failed"
-              : "segment-chip segment-chip-pending";
-
-          return (
-            <div
-              key={segmentNumber}
-              className={segmentClassName}
-              style={{
-                minWidth: 36,
-                padding: "2px 8px",
-                textAlign: "center",
-                fontSize: 12,
-                lineHeight: "20px",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {segmentNumber}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
 }
 
 function getStatusTag(status: DownloadStatus) {
@@ -596,7 +504,9 @@ export function DownloadList({
             {t("retryFailedSegments")}</Button>
         ) : null}
         {loadingSegments && !segmentState ? <Spin size="small" /> : null}
-        {segmentState ? renderSegmentGrid(segmentState) : null}
+        {segmentState ? (
+          <DownloadSegmentGrid segmentState={segmentState} />
+        ) : null}
       </div>
     );
 
