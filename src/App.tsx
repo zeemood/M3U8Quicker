@@ -1,20 +1,23 @@
 import { t, useTranslation } from "./i18n";
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import {
   Button,
   Layout,
   Modal,
-  Popconfirm,
   Space,
-  Tabs,
-  Tag,
   Typography,
   message,
   theme,
 } from "antd";
 import {
   ChromeOutlined,
-  ClearOutlined,
   FolderOpenOutlined,
 } from "@ant-design/icons";
 import { EdgeIcon } from "./components/EdgeIcon";
@@ -22,15 +25,13 @@ import { FirefoxIcon } from "./components/FirefoxIcon";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Toolbar } from "./components/Toolbar";
-import { DownloadList } from "./components/DownloadList";
+import { TaskTabs, type TaskTabsHandle } from "./components/TaskTabs";
 import { NewDownloadModal } from "./components/NewDownloadModal";
 import { NewLiveRecordModal } from "./components/NewLiveRecordModal";
 import { BatchDownloadModal } from "./components/BatchDownloadModal";
 import { VideoPreviewModal } from "./components/VideoPreviewModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ToolsModal, type ToolAction } from "./components/ToolsModal";
-import { useDownloads } from "./hooks/useDownloads";
-import { useLiveRecords } from "./hooks/useLiveRecords";
 import {
   installChromiumExtension,
   openChromiumExtensionsPage,
@@ -51,16 +52,15 @@ import {
 import type {
   ChromiumBrowser,
   ChromiumExtensionInstallResult,
-  DownloadStatus,
   FirefoxExtensionInstallResult,
   DownloadTaskSummary,
   LiveProgressEvent,
   LiveProtocol,
+  LiveRecordSummary,
 } from "./types";
 import {
   canOpenInProgressPlayback,
   isDirectFileType,
-  liveRecordToDownloadSummary,
   parseFileType,
 } from "./types";
 import type { ThemeMode } from "./types/settings";
@@ -160,6 +160,7 @@ function App({
   const showUpdateDot = updateNotificationsEnabled && updateAvailable;
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_HISTORY_PAGE_SIZE);
+  const taskTabsRef = useRef<TaskTabsHandle>(null);
   const [chromiumInstallGuide, setChromiumInstallGuide] =
     useState<ChromiumInstallGuideState | null>(null);
   const [firefoxInstallGuide, setFirefoxInstallGuide] =
@@ -171,52 +172,6 @@ function App({
     protocol: LiveProtocol;
     isSplit: boolean;
   } | null>(null);
-  const {
-    counts,
-    downloading,
-    downloadingPage,
-    downloadingPageSize,
-    downloadingTotal,
-    completed,
-    completedPage,
-    completedPageSize,
-    completedTotal,
-    addDownload,
-    addDownloadsBatch,
-    pause,
-    resume,
-    retryFailed,
-    cancel,
-    remove,
-    clearCompleted,
-    loadingActive,
-    loadingHistory,
-    refreshActive,
-    refreshHistory,
-    getSegmentState,
-  } = useDownloads(historyPageSize);
-  const {
-    counts: liveCounts,
-    recording: liveRecording,
-    recordingPage: liveRecordingPage,
-    recordingPageSize: liveRecordingPageSize,
-    recordingTotal: liveRecordingTotal,
-    recorded: liveRecorded,
-    recordedPage: liveRecordedPage,
-    recordedPageSize: liveRecordedPageSize,
-    recordedTotal: liveRecordedTotal,
-    addLiveRecord,
-    pause: pauseLive,
-    resume: resumeLive,
-    stop: stopLive,
-    cancel: cancelLive,
-    remove: removeLive,
-    clearCompleted: clearLiveCompleted,
-    refreshActive: refreshLiveActive,
-    refreshHistory: refreshLiveHistory,
-    loadingActive: loadingLiveActive,
-    loadingHistory: loadingLiveHistory,
-  } = useLiveRecords(historyPageSize);
   const { token } = theme.useToken();
 
   useEffect(() => {
@@ -403,7 +358,7 @@ function App({
     };
   }, []);
 
-  const handleOpenPlaybackWindow = async (task: DownloadTaskSummary) => {
+  const handleOpenPlaybackWindow = useCallback(async (task: DownloadTaskSummary) => {
     if (
       (task.status === "Downloading" || task.status === "Paused") &&
       isDirectFileType(task.file_type) &&
@@ -455,9 +410,9 @@ function App({
       console.error("Failed to open playback window", error);
       message.error(t("failedToOpenPlayer", { value0: error }));
     }
-  };
+  }, []);
 
-  const handleOpenLivePlaybackWindow = async (task: DownloadTaskSummary) => {
+  const handleOpenLivePlaybackWindow = useCallback(async (task: DownloadTaskSummary) => {
     try {
       const session = await openLivePlaybackSession(task.id);
       const existingWindow = await WebviewWindow.getByLabel(session.window_label);
@@ -502,22 +457,22 @@ function App({
       console.error("Failed to open live playback window", error);
       message.error(t("failedToOpenPlayer", { value0: error }));
     }
-  };
+  }, []);
 
-  const requestStopLive = (id: string) => {
-    const record = liveRecording.find((item) => item.id === id);
-    if (!record) {
-      void stopLive(id);
-      return;
-    }
+  const requestStopLive = useCallback((record: LiveRecordSummary) => {
     setLiveStopTarget({
-      id,
+      id: record.id,
       filename: record.filename,
       filePath: record.file_path,
       protocol: record.protocol,
       isSplit: Boolean(record.split) || (record.part_paths?.length ?? 0) > 0,
     });
-  };
+  }, []);
+  const handleAnalyzeVideo = useCallback((filePath: string) => {
+    setToolInputPath(filePath);
+    setActiveTool("analyze-media");
+    setToolModalOpen(true);
+  }, []);
 
   const performStopLive = async (convertToMp4Flag: boolean) => {
     if (!liveStopTarget) return;
@@ -527,7 +482,7 @@ function App({
     const recordedPromise = convertToMp4Flag ? waitForLiveRecorded(id) : null;
 
     try {
-      await stopLive(id);
+      await taskTabsRef.current?.stopLive(id);
     } catch {
       // stopLive already surfaces an error message
       return;
@@ -742,188 +697,6 @@ function App({
 
   const chromiumBrowserMeta = CHROMIUM_BROWSER_META[chromiumInstallGuide?.browser ?? "chrome"];
 
-  const liveRecordingItems = liveRecording.map(liveRecordToDownloadSummary);
-  const liveRecordedItems = liveRecorded.map(liveRecordToDownloadSummary);
-
-  const liveStatusTagOverride = (status: DownloadStatus) => {
-    if (status === "Downloading") return <Tag color="processing">{t("recording")}</Tag>;
-    if (status === "Paused") return <Tag color="warning">{t("paused")}</Tag>;
-    if (status === "Completed") return <Tag color="success">{t("recorded")}</Tag>;
-    if (status === "Cancelled") return <Tag color="default">{t("cancelled")}</Tag>;
-    if (typeof status === "object" && "Failed" in status)
-      return <Tag color="error">{t("failed")}</Tag>;
-    return undefined;
-  };
-
-  const noopGetSegmentState = async () => ({
-    id: "",
-    total_segments: 0,
-    completed_segment_indices: [],
-    failed_segment_indices: [],
-    updated_at: new Date().toISOString(),
-  });
-
-  const tabItems = [
-    {
-      key: "downloading",
-      label: t("downloading", { value0: counts.active_count }),
-      children: (
-        <DownloadList
-          downloads={downloading}
-          total={downloadingTotal}
-          currentPage={downloadingPage}
-          pageSize={downloadingPageSize}
-          onPageChange={(page) => {
-            void refreshActive(page);
-          }}
-          getSegmentState={getSegmentState}
-          onPause={pause}
-          onResume={resume}
-          onRetryFailed={retryFailed}
-          onCancel={cancel}
-          onRemove={remove}
-          onPlay={(task) => {
-            void handleOpenPlaybackWindow(task);
-          }}
-          loading={loadingActive}
-          showActions={["play", "pause", "resume", "cancel", "open"]}
-        />
-      ),
-    },
-    {
-      key: "completed",
-      label: t("completed", { value0: counts.history_count }),
-      children: (
-        <DownloadList
-          downloads={completed}
-          total={completedTotal}
-          currentPage={completedPage}
-          pageSize={completedPageSize}
-          onPageChange={(page) => {
-            void refreshHistory(page);
-          }}
-          getSegmentState={getSegmentState}
-          onPause={pause}
-          onResume={resume}
-          onRetryFailed={retryFailed}
-          onCancel={cancel}
-          onRemove={remove}
-          onPlay={(task) => {
-            void handleOpenPlaybackWindow(task);
-          }}
-          loading={loadingHistory}
-          onAnalyze={(filePath) => {
-            setToolInputPath(filePath);
-            setActiveTool("analyze-media");
-            setToolModalOpen(true);
-          }}
-          showActions={["play", "remove", "open"]}
-          showSpeed={false}
-          actionsHeaderExtra={
-            <Popconfirm
-              title={t("clearThisList")}
-              description={t("onlyCompletedRecordsWillBeRemovedLocalFilesWillBe")}
-              onConfirm={() => void clearCompleted()}
-              okText={t("clearList")}
-              cancelText={t("cancel")}
-              disabled={counts.history_count === 0}
-            >
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<ClearOutlined />}
-                aria-label={t("clearList")}
-                disabled={counts.history_count === 0}
-              />
-            </Popconfirm>
-          }
-        />
-      ),
-    },
-    {
-      key: "live-recording",
-      label: t("liveRecordings", { value0: liveCounts.active_count }),
-      children: (
-        <DownloadList
-          downloads={liveRecordingItems}
-          total={liveRecordingTotal}
-          currentPage={liveRecordingPage}
-          pageSize={liveRecordingPageSize}
-          onPageChange={(page) => {
-            void refreshLiveActive(page);
-          }}
-          getSegmentState={noopGetSegmentState}
-          onPause={pauseLive}
-          onResume={resumeLive}
-          onRetryFailed={() => undefined}
-          onCancel={cancelLive}
-          onRemove={removeLive}
-          onStop={requestStopLive}
-          onPlay={(task) => {
-            void handleOpenLivePlaybackWindow(task);
-          }}
-          loading={loadingLiveActive}
-          showActions={["play", "pause", "resume", "stop", "cancel", "open"]}
-          statusTagOverride={liveStatusTagOverride}
-          cancelLabels={{
-            title: t("cancelRecording"),
-            description: t("recordedFilesWillBePermanentlyDeleted"),
-            okText: t("cancelAndDelete"),
-            cancelText: t("continueRecording"),
-          }}
-        />
-      ),
-    },
-    {
-      key: "live-recorded",
-      label: t("recorded2", { value0: liveCounts.history_count }),
-      children: (
-        <DownloadList
-          downloads={liveRecordedItems}
-          total={liveRecordedTotal}
-          currentPage={liveRecordedPage}
-          pageSize={liveRecordedPageSize}
-          onPageChange={(page) => {
-            void refreshLiveHistory(page);
-          }}
-          getSegmentState={noopGetSegmentState}
-          onPause={() => undefined}
-          onResume={() => undefined}
-          onRetryFailed={() => undefined}
-          onCancel={() => undefined}
-          onRemove={removeLive}
-          onPlay={(task) => {
-            void handleOpenLivePlaybackWindow(task);
-          }}
-          loading={loadingLiveHistory}
-          showActions={["play", "remove", "open"]}
-          showSpeed={false}
-          statusTagOverride={liveStatusTagOverride}
-          actionsHeaderExtra={
-            <Popconfirm
-              title={t("clearThisList")}
-              description={t("onlyCompletedRecordingRecordsWillBeRemovedLocalFilesWill")}
-              onConfirm={() => void clearLiveCompleted()}
-              okText={t("clearList")}
-              cancelText={t("cancel")}
-              disabled={liveCounts.history_count === 0}
-            >
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<ClearOutlined />}
-                aria-label={t("clearList")}
-                disabled={liveCounts.history_count === 0}
-              />
-            </Popconfirm>
-          }
-        />
-      ),
-    },
-  ];
-
   return (
     <Layout style={{ minHeight: "100vh", background: token.colorBgLayout }}>
       <Header
@@ -984,7 +757,14 @@ function App({
           background: token.colorBgLayout,
         }}
       >
-        <Tabs items={tabItems} defaultActiveKey="downloading" />
+        <TaskTabs
+          ref={taskTabsRef}
+          historyPageSize={historyPageSize}
+          onPlayDownload={handleOpenPlaybackWindow}
+          onPlayLive={handleOpenLivePlaybackWindow}
+          onAnalyze={handleAnalyzeVideo}
+          onRequestStopLive={requestStopLive}
+        />
       </Content>
       <NewDownloadModal
         open={modalOpen}
@@ -1004,7 +784,7 @@ function App({
           setLiveRecordModalOpen(true);
         }}
         onSubmit={async (params) => {
-          await addDownload(params);
+          await taskTabsRef.current?.addDownload(params);
           setModalOpen(false);
         }}
       />
@@ -1051,7 +831,7 @@ function App({
           setSettingsOpen(true);
         }}
         onSubmit={async (paramsList) => {
-          return addDownloadsBatch(paramsList);
+          return taskTabsRef.current?.addDownloadsBatch(paramsList) ?? [];
         }}
       />
       <VideoPreviewModal
@@ -1070,7 +850,7 @@ function App({
           setLiveRecordDraft(null);
         }}
         onSubmit={async (params) => {
-          await addLiveRecord(params);
+          await taskTabsRef.current?.addLiveRecord(params);
         }}
         onSwitchToDownload={(draft) => {
           setLiveRecordModalOpen(false);

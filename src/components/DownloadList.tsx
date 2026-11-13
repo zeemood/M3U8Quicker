@@ -15,7 +15,7 @@ import {
 } from "antd";
 import type { MenuProps } from "antd";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import {
   CaretRightOutlined,
@@ -75,6 +75,8 @@ interface DownloadListProps {
   progressStatuses?: DownloadStatus[];
 }
 
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -91,16 +93,29 @@ function formatUpdatedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return new Intl.DateTimeFormat(currentLanguage(), {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
+  const language = currentLanguage();
+  let formatter = dateTimeFormatters.get(language);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(language, {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    dateTimeFormatters.set(language, formatter);
+  }
+  return formatter.format(date);
+}
+
+function shouldUpdateRow(
+  record: DownloadTaskSummary,
+  previousRecord: DownloadTaskSummary
+): boolean {
+  return record !== previousRecord;
 }
 
 function calculatePercentage(record: DownloadTaskSummary): number {
@@ -129,7 +144,7 @@ function getStatusTag(status: DownloadStatus) {
   return <Tag>{String(status)}</Tag>;
 }
 
-export function DownloadList({
+export const DownloadList = memo(function DownloadList({
   downloads,
   total,
   currentPage,
@@ -533,6 +548,7 @@ export function DownloadList({
     {
       title: t("filename"),
       key: "filename",
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         (() => {
           const isDirectDownload = isDirectFileType(record.file_type);
@@ -596,6 +612,7 @@ export function DownloadList({
       title: t("progress"),
       key: "progress",
       width: 280,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         <div>
           <Progress
@@ -641,6 +658,7 @@ export function DownloadList({
             title: t("speed"),
             key: "speed",
             width: 120,
+            shouldCellUpdate: shouldUpdateRow,
             render: (_: unknown, record: DownloadTaskSummary) =>
               record.status === "Downloading"
                 ? formatSpeed(record.speed_bytes_per_sec)
@@ -652,6 +670,7 @@ export function DownloadList({
       title: t("status"),
       key: "status",
       width: 180,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => {
         const isOngoingStatus =
           record.status === "Downloading" ||
@@ -703,6 +722,7 @@ export function DownloadList({
       ),
       key: "actions",
       width: 160,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         <Space>
           {(() => {
@@ -893,4 +913,4 @@ export function DownloadList({
       </Dropdown>
     </>
   );
-}
+});

@@ -11,10 +11,11 @@ import type {
   DownloadTaskSummary,
 } from "../types";
 import * as api from "../services/api";
+import { createProgressBatcher } from "../utils/progressBatcher";
 
 const DEFAULT_PAGE_SIZE = 50;
 const BATCH_CREATE_CONCURRENCY = 3;
-const PROGRESS_FLUSH_INTERVAL_MS = 100;
+const PROGRESS_FLUSH_INTERVAL_MS = 250;
 
 interface PageState {
   items: DownloadTaskSummary[];
@@ -23,7 +24,7 @@ interface PageState {
   pageSize: number;
 }
 
-interface BatchAddDownloadResult {
+export interface BatchAddDownloadResult {
   task?: DownloadTaskSummary;
   error?: unknown;
 }
@@ -112,10 +113,6 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   });
   const activePageRef = useRef(activePage);
   const historyPageRef = useRef(historyPage);
-  const pendingProgressRef = useRef(
-    new Map<string, DownloadProgressEvent>()
-  );
-  const progressFlushTimerRef = useRef<number | null>(null);
   const historyRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -218,12 +215,8 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     };
   }, [historyPageSize]);
 
-  const flushPendingProgress = useCallback(() => {
-    progressFlushTimerRef.current = null;
-    if (pendingProgressRef.current.size === 0) return;
-
-    const events = Array.from(pendingProgressRef.current.values());
-    pendingProgressRef.current.clear();
+  const flushProgressEvents = useCallback((batchedEvents: Array<[string, DownloadProgressEvent]>) => {
+    const events = batchedEvents.map(([, event]) => event);
     const hasTerminalEvent = events.some((event) => event.group !== "active");
 
     setActivePage((prev) => {
@@ -266,16 +259,13 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
-    const pendingProgress = pendingProgressRef.current;
+    const progressBatcher = createProgressBatcher<string, DownloadProgressEvent>({
+      intervalMs: PROGRESS_FLUSH_INTERVAL_MS,
+      onFlush: flushProgressEvents,
+    });
 
     void listen<DownloadProgressEvent>("download-progress", ({ payload }) => {
-      pendingProgress.set(payload.id, payload);
-      if (progressFlushTimerRef.current !== null) return;
-
-      progressFlushTimerRef.current = window.setTimeout(
-        flushPendingProgress,
-        PROGRESS_FLUSH_INTERVAL_MS
-      );
+      progressBatcher.enqueue(payload.id, payload);
     }).then((fn) => {
       if (disposed) {
         fn();
@@ -289,13 +279,9 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     return () => {
       disposed = true;
       unlisten?.();
-      if (progressFlushTimerRef.current !== null) {
-        window.clearTimeout(progressFlushTimerRef.current);
-        progressFlushTimerRef.current = null;
-      }
-      pendingProgress.clear();
+      progressBatcher.dispose();
     };
-  }, [flushPendingProgress]);
+  }, [flushProgressEvents]);
 
   const addDownload = useCallback(async (params: CreateDownloadParams) => {
     const task = await api.createDownload(params);
@@ -413,6 +399,14 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   const getSegmentState = useCallback(async (task: DownloadTaskSummary) => {
     return api.getDownloadSegmentState(task.id);
   }, []);
+  const refreshActive = useCallback(
+    (page?: number) => refreshGroup("active", page),
+    [refreshGroup]
+  );
+  const refreshHistory = useCallback(
+    (page?: number) => refreshGroup("history", page),
+    [refreshGroup]
+  );
 
   return {
     counts,
@@ -435,8 +429,8 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     remove,
     clearCompleted,
     refreshCounts,
-    refreshActive: (page?: number) => refreshGroup("active", page),
-    refreshHistory: (page?: number) => refreshGroup("history", page),
+    refreshActive,
+    refreshHistory,
     getSegmentState,
   };
 }
