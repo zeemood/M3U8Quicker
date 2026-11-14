@@ -4477,6 +4477,21 @@ async fn merge_selected_segments(
     merge_files(&segment_paths, output_path).await
 }
 
+async fn remove_file_if_exists(path: &Path) -> Result<(), AppError> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn resolve_effective_ffmpeg_path<'a>(
+    ffmpeg_enabled: bool,
+    ffmpeg_path: Option<&'a Path>,
+) -> Option<&'a Path> {
+    if ffmpeg_enabled { ffmpeg_path } else { None }
+}
+
 pub async fn merge_single_stream_with_failed_segments(
     task: &DownloadTask,
     convert_to_mp4: bool,
@@ -4485,12 +4500,26 @@ pub async fn merge_single_stream_with_failed_segments(
 ) -> Result<PathBuf, AppError> {
     let output_dir = PathBuf::from(&task.output_dir);
     let temp_dir = temp_dir_for_task(&output_dir, &task.id);
+    let effective_ffmpeg_path = resolve_effective_ffmpeg_path(ffmpeg_enabled, ffmpeg_path);
+    let final_output_path = match task.hls_media_kind {
+        HlsMediaKind::MpegTs => resolve_available_output_path(
+            &output_dir,
+            &ensure_extension(&task.filename, "ts"),
+        ),
+        HlsMediaKind::Fmp4 => resolve_available_output_path(
+            &output_dir,
+            &ensure_extension(&task.filename, "mp4"),
+        ),
+    };
+    let partial_output_path = mp4_partial_path_for_output_path(&final_output_path);
+    remove_file_if_exists(&partial_output_path).await?;
+
     let available_one_based = available_segment_indices(
         task.total_segments,
         &task.completed_segment_indices,
         &task.failed_segment_indices,
     );
-    let mut existing_one_based = Vec::new();
+    let mut existing_one_based = BTreeSet::new();
     for index in available_one_based {
         let path = segment_file_path_for_kind(&temp_dir, task.hls_media_kind, index - 1);
         if tokio::fs::metadata(&path)
@@ -4498,7 +4527,7 @@ pub async fn merge_single_stream_with_failed_segments(
             .map(|metadata| metadata.is_file())
             .unwrap_or(false)
         {
-            existing_one_based.push(index);
+            existing_one_based.insert(index);
         }
     }
     if existing_one_based.is_empty() {
@@ -4512,58 +4541,128 @@ pub async fn merge_single_stream_with_failed_segments(
             .iter()
             .map(|index| index - 1)
             .collect::<Vec<_>>();
-        let ts_path = resolve_available_output_path(
-            &output_dir,
-            &ensure_extension(&task.filename, "ts"),
-        );
-        merge_selected_segments(&temp_dir, &zero_based, &ts_path).await?;
+        if let Err(error) =
+            merge_selected_segments(&temp_dir, &zero_based, &partial_output_path).await
+        {
+            let _ = remove_file_if_exists(&partial_output_path).await;
+            return Err(error);
+        }
+        if let Err(error) = tokio::fs::rename(&partial_output_path, &final_output_path).await {
+            let _ = remove_file_if_exists(&partial_output_path).await;
+            return Err(error.into());
+        }
         if !convert_to_mp4 {
-            return Ok(ts_path);
+            return Ok(final_output_path);
         }
         let mp4_path = resolve_available_output_path(
             &output_dir,
             &ensure_extension(&task.filename, "mp4"),
         );
-        convert_ts_to_mp4_file(
-            &ts_path,
-            &mp4_path,
-            true,
+        let mp4_partial_path = mp4_partial_path_for_output_path(&mp4_path);
+        remove_file_if_exists(&mp4_partial_path).await?;
+        if let Err(error) = convert_ts_to_mp4_file(
+            &final_output_path,
+            &mp4_partial_path,
+            false,
             ffmpeg_enabled,
-            ffmpeg_path,
+            effective_ffmpeg_path,
         )
-        .await?;
+        .await
+        {
+            let _ = remove_file_if_exists(&mp4_partial_path).await;
+            eprintln!(
+                "[downloader] TS to MP4 conversion failed, keeping TS output: {}",
+                error
+            );
+            return Ok(final_output_path);
+        }
+        if let Err(error) = tokio::fs::rename(&mp4_partial_path, &mp4_path).await {
+            let _ = remove_file_if_exists(&mp4_partial_path).await;
+            return Err(error.into());
+        }
+        let _ = tokio::fs::remove_file(&final_output_path).await;
         return Ok(mp4_path);
     }
 
-    let selected = task
-        .segment_uris
+    let required_metadata_len = existing_one_based
         .iter()
-        .enumerate()
-        .filter(|(index, _)| existing_one_based.contains(&(index + 1)))
-        .map(|(index, uri)| SegmentInfo {
+        .next_back()
+        .copied()
+        .unwrap_or_default();
+    if task.segment_uris.len() < required_metadata_len
+        || task.segment_durations.len() < required_metadata_len
+        || task.segment_init_indices.len() < required_metadata_len
+    {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+        ));
+    }
+
+    let mut selected = Vec::with_capacity(existing_one_based.len());
+    for one_based_index in existing_one_based {
+        let index = one_based_index - 1;
+        let uri = task.segment_uris[index].clone();
+        let duration = task.segment_durations[index];
+        let init_segment_index = task.segment_init_indices[index];
+        selected.push(SegmentInfo {
             index,
-            uri: uri.clone(),
-            duration: task.segment_durations.get(index).copied().unwrap_or(1.0),
+            uri,
+            duration,
             sequence_number: index as u64,
             byte_range: None,
-            init_segment_index: task.segment_init_indices.get(index).copied().flatten(),
+            init_segment_index,
             encryption: None,
-        })
-        .collect::<Vec<_>>();
+        });
+    }
+
+    let mut validated_init_indices = BTreeSet::new();
+    for segment in &selected {
+        let Some(init_index) = segment.init_segment_index else {
+            continue;
+        };
+        if !validated_init_indices.insert(init_index) {
+            continue;
+        }
+        let init = task
+            .hls_init_segments
+            .iter()
+            .find(|init| init.index == init_index)
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "Missing fMP4 init segment metadata for index {}",
+                    init_index
+                ))
+            })?;
+        let init_path = hls_init_segment_file_path(&temp_dir, init.index);
+        if !tokio::fs::metadata(&init_path)
+            .await
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false)
+        {
+            return Err(AppError::InvalidInput(
+                crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+            ));
+        }
+    }
+
     write_fmp4_local_playlist(&temp_dir, &task.hls_init_segments, &selected).await?;
-    let mp4_path = resolve_available_output_path(
-        &output_dir,
-        &ensure_extension(&task.filename, "mp4"),
-    );
-    convert_fmp4_segments_to_mp4(
+    if let Err(error) = convert_fmp4_segments_to_mp4(
         &temp_dir,
         &task.hls_init_segments,
         &selected,
-        &mp4_path,
-        ffmpeg_path,
+        &partial_output_path,
+        effective_ffmpeg_path,
     )
-    .await?;
-    Ok(mp4_path)
+    .await
+    {
+        let _ = remove_file_if_exists(&partial_output_path).await;
+        return Err(error);
+    }
+    if let Err(error) = tokio::fs::rename(&partial_output_path, &final_output_path).await {
+        let _ = remove_file_if_exists(&partial_output_path).await;
+        return Err(error.into());
+    }
+    Ok(final_output_path)
 }
 
 async fn convert_fmp4_segments_to_mp4(
@@ -5453,6 +5552,214 @@ mod tests {
 
         assert_eq!(std::fs::read(&output).unwrap(), b"onethree");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn tolerant_merge_task(
+        output_dir: &Path,
+        media_kind: HlsMediaKind,
+        total_segments: usize,
+        completed_segment_indices: Vec<usize>,
+        failed_segment_indices: Vec<usize>,
+    ) -> DownloadTask {
+        DownloadTask {
+            id: Uuid::new_v4().to_string(),
+            url: "https://example.com/video.m3u8".to_string(),
+            source_kind: DownloadSourceKind::Url,
+            source_text: None,
+            filename: "video".to_string(),
+            file_type: FileType::Hls,
+            hls_output_mode: HlsOutputMode::SingleStream,
+            hls_media_kind: media_kind,
+            hls_selection: None,
+            encryption_method: None,
+            output_dir: output_dir.to_string_lossy().into_owned(),
+            extra_headers: None,
+            status: DownloadStatus::Paused,
+            total_segments,
+            completed_segments: completed_segment_indices.len(),
+            completed_segment_indices,
+            failed_segment_indices,
+            segment_uris: (0..total_segments)
+                .map(|index| format!("https://example.com/segment-{index}.m4s"))
+                .collect(),
+            segment_durations: vec![1.0; total_segments],
+            hls_init_segments: Vec::new(),
+            segment_init_indices: vec![None; total_segments],
+            total_bytes: 0,
+            speed_bytes_per_sec: 0,
+            created_at: Utc::now(),
+            completed_at: None,
+            updated_at: None,
+            playback_available: true,
+            file_path: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_ts_merges_only_available_segments() {
+        let root = unique_temp_path("merge-tolerant-ts");
+        fs::create_dir_all(&root).unwrap();
+        let task = tolerant_merge_task(
+            &root,
+            HlsMediaKind::MpegTs,
+            4,
+            vec![1, 2, 3, 4],
+            vec![2],
+        );
+        let temp_dir = temp_dir_for_task(&root, &task.id);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(segment_file_path(&temp_dir, 0), b"one").unwrap();
+        fs::write(segment_file_path(&temp_dir, 1), b"two").unwrap();
+        fs::write(segment_file_path(&temp_dir, 2), b"three").unwrap();
+        let final_path = root.join("video.ts");
+        let partial_path = mp4_partial_path_for_output_path(&final_path);
+        fs::write(&partial_path, b"stale").unwrap();
+
+        let output = merge_single_stream_with_failed_segments(&task, false, false, None)
+            .await
+            .unwrap();
+
+        assert_eq!(output, final_path);
+        assert_eq!(fs::read(&output).unwrap(), b"onethree");
+        assert!(!partial_path.exists());
+        remove_temp_dir(&root);
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_merge_rejects_when_no_segments_exist() {
+        let root = unique_temp_path("merge-tolerant-empty");
+        fs::create_dir_all(&root).unwrap();
+        let task = tolerant_merge_task(
+            &root,
+            HlsMediaKind::MpegTs,
+            2,
+            vec![1, 2],
+            vec![2],
+        );
+        let final_path = root.join("video.ts");
+        let partial_path = mp4_partial_path_for_output_path(&final_path);
+        fs::write(&partial_path, b"stale").unwrap();
+
+        let result = merge_single_stream_with_failed_segments(&task, false, false, None).await;
+
+        assert!(result.is_err());
+        assert!(!final_path.exists());
+        assert!(!partial_path.exists());
+        remove_temp_dir(&root);
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_ts_keeps_ts_when_conversion_fails() {
+        let root = unique_temp_path("merge-tolerant-ts-fallback");
+        fs::create_dir_all(&root).unwrap();
+        let task = tolerant_merge_task(&root, HlsMediaKind::MpegTs, 1, vec![1], Vec::new());
+        let temp_dir = temp_dir_for_task(&root, &task.id);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(segment_file_path(&temp_dir, 0), b"not-a-valid-ts").unwrap();
+
+        let output = merge_single_stream_with_failed_segments(&task, true, false, None)
+            .await
+            .unwrap();
+
+        assert_eq!(output, root.join("video.ts"));
+        assert_eq!(fs::read(&output).unwrap(), b"not-a-valid-ts");
+        assert!(!root.join("video.mp4").exists());
+        assert!(!mp4_partial_path_for_output_path(&root.join("video.mp4")).exists());
+        remove_temp_dir(&root);
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_fmp4_preflights_init_files() {
+        let root = unique_temp_path("merge-tolerant-fmp4-init");
+        fs::create_dir_all(&root).unwrap();
+        let mut task = tolerant_merge_task(&root, HlsMediaKind::Fmp4, 1, vec![1], Vec::new());
+        task.hls_init_segments = vec![HlsInitSegmentInfo {
+            index: 0,
+            uri: "init.mp4".to_string(),
+            byte_range: None,
+        }];
+        task.segment_init_indices = vec![Some(0)];
+        let temp_dir = temp_dir_for_task(&root, &task.id);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(fmp4_segment_file_path(&temp_dir, 0), b"fragment").unwrap();
+        let final_path = root.join("video.mp4");
+
+        let result = merge_single_stream_with_failed_segments(&task, false, false, None).await;
+
+        assert!(result.is_err());
+        assert!(!final_path.exists());
+        assert!(!mp4_partial_path_for_output_path(&final_path).exists());
+        remove_temp_dir(&root);
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_fmp4_validates_metadata_lengths() {
+        let root = unique_temp_path("merge-tolerant-fmp4-metadata");
+        fs::create_dir_all(&root).unwrap();
+        let mut task = tolerant_merge_task(&root, HlsMediaKind::Fmp4, 2, vec![2], Vec::new());
+        task.segment_uris.truncate(1);
+        task.segment_durations.truncate(1);
+        task.segment_init_indices.truncate(1);
+        let temp_dir = temp_dir_for_task(&root, &task.id);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(fmp4_segment_file_path(&temp_dir, 1), b"fragment").unwrap();
+        let final_path = root.join("video.mp4");
+
+        let result = merge_single_stream_with_failed_segments(&task, false, false, None).await;
+
+        assert!(result.is_err());
+        assert!(!final_path.exists());
+        assert!(!mp4_partial_path_for_output_path(&final_path).exists());
+        remove_temp_dir(&root);
+    }
+
+    #[tokio::test]
+    async fn merge_single_stream_tolerant_fmp4_always_outputs_mp4() {
+        let root = unique_temp_path("merge-tolerant-fmp4-output");
+        fs::create_dir_all(&root).unwrap();
+        let mut task = tolerant_merge_task(&root, HlsMediaKind::Fmp4, 1, vec![1], Vec::new());
+        task.hls_init_segments = vec![HlsInitSegmentInfo {
+            index: 0,
+            uri: "init.mp4".to_string(),
+            byte_range: None,
+        }];
+        task.segment_init_indices = vec![Some(0)];
+        let temp_dir = temp_dir_for_task(&root, &task.id);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(hls_init_segment_file_path(&temp_dir, 0), b"init").unwrap();
+        fs::write(fmp4_segment_file_path(&temp_dir, 0), b"fragment").unwrap();
+        let final_path = root.join("video.mp4");
+        let partial_path = mp4_partial_path_for_output_path(&final_path);
+        fs::write(&partial_path, b"stale").unwrap();
+        let unused_ffmpeg_path = root.join("ffmpeg-must-not-run.exe");
+
+        let output = merge_single_stream_with_failed_segments(
+            &task,
+            false,
+            false,
+            Some(unused_ffmpeg_path.as_path()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(output, final_path);
+        assert_eq!(fs::read(&output).unwrap(), b"initfragment");
+        assert!(!partial_path.exists());
+        remove_temp_dir(&root);
+    }
+
+    #[test]
+    fn effective_ffmpeg_path_is_none_when_disabled() {
+        let ffmpeg_path = Path::new("ffmpeg.exe");
+
+        assert_eq!(
+            resolve_effective_ffmpeg_path(false, Some(ffmpeg_path)),
+            None
+        );
+        assert_eq!(
+            resolve_effective_ffmpeg_path(true, Some(ffmpeg_path)),
+            Some(ffmpeg_path)
+        );
     }
 
     fn encrypt_aes_cbc_for_test(data: &[u8], key: &[u8], iv: &[u8; 16]) -> Vec<u8> {
