@@ -1706,10 +1706,10 @@ pub async fn set_merge_failed_segment_limit(
 ) -> Result<(), AppError> {
     let normalized = normalize_merge_failed_segment_limit(merge_failed_segment_limit);
 
-    persistence::update_settings(&app_handle, |settings| {
+    persistence::try_update_settings(&app_handle, |settings| {
         settings.merge_failed_segment_limit = normalized;
     })
-    .await;
+    .await?;
 
     Ok(())
 }

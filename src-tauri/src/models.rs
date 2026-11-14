@@ -1427,11 +1427,33 @@ mod tests {
     }
 
     #[test]
-    fn https_certificate_errors_are_not_ignored_by_default_or_legacy_settings() {
+    fn app_settings_normalizes_merge_failed_segment_limit_boundaries() {
+        let cases = [
+            (0, 0),
+            (30, 30),
+            (MAX_MERGE_FAILED_SEGMENT_LIMIT, MAX_MERGE_FAILED_SEGMENT_LIMIT),
+            (MAX_MERGE_FAILED_SEGMENT_LIMIT + 1, MAX_MERGE_FAILED_SEGMENT_LIMIT),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                normalize_merge_failed_segment_limit(input),
+                expected,
+                "unexpected normalization for {input}"
+            );
+        }
+    }
+
+    #[test]
+    fn app_settings_https_certificate_errors_are_not_ignored_by_default_or_legacy_settings() {
         assert!(!AppSettings::default().ignore_https_certificate_errors);
         let legacy: AppSettings = serde_json::from_str(r#"{"user_agent":"legacy-agent"}"#).unwrap();
         assert!(!legacy.ignore_https_certificate_errors);
         assert_eq!(legacy.user_agent, "legacy-agent");
+        assert_eq!(
+            legacy.merge_failed_segment_limit,
+            DEFAULT_MERGE_FAILED_SEGMENT_LIMIT
+        );
     }
 
     #[test]
