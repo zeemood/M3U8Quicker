@@ -4413,6 +4413,53 @@ async fn download_segment(
 
 // --- Merge Segments ---
 
+pub fn available_segment_indices(
+    total_segments: usize,
+    completed_segment_indices: &[usize],
+    failed_segment_indices: &[usize],
+) -> Vec<usize> {
+    let failed = failed_segment_indices
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    completed_segment_indices
+        .iter()
+        .copied()
+        .filter(|index| {
+            *index > 0 && *index <= total_segments && !failed.contains(index)
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+pub fn validate_tolerant_merge_task(
+    file_type: FileType,
+    output_mode: HlsOutputMode,
+    total_segments: usize,
+    completed_segments: usize,
+    failed_segments: usize,
+    task_running: bool,
+    limit: usize,
+) -> Result<(), AppError> {
+    if file_type != FileType::Hls || output_mode != HlsOutputMode::SingleStream {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+        ));
+    }
+    if limit == 0 || failed_segments == 0 || failed_segments > limit || task_running {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+        ));
+    }
+    if completed_segments.saturating_add(failed_segments) < total_segments {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+        ));
+    }
+    Ok(())
+}
+
 async fn merge_segments(temp_dir: &Path, total: usize, output_path: &Path) -> Result<(), AppError> {
     let segment_paths = (0..total)
         .map(|index| segment_file_path(temp_dir, index))
@@ -5264,6 +5311,36 @@ mod tests {
     type Aes128CbcEnc = cbc::Encryptor<Aes128>;
     type Aes192CbcEnc = cbc::Encryptor<Aes192>;
     type Aes256CbcEnc = cbc::Encryptor<Aes256>;
+
+    #[test]
+    fn available_segment_indices_skips_failed_and_preserves_order() {
+        let indices = available_segment_indices(6, &[1, 2, 5], &[3, 4]);
+        assert_eq!(indices, vec![1, 2, 5]);
+    }
+
+    #[test]
+    fn available_segment_indices_rejects_unfinished_task() {
+        assert!(validate_tolerant_merge_task(
+            FileType::Hls,
+            HlsOutputMode::SingleStream,
+            6,
+            4,
+            2,
+            false,
+            30,
+        )
+        .is_ok());
+        assert!(validate_tolerant_merge_task(
+            FileType::Hls,
+            HlsOutputMode::SingleStream,
+            6,
+            2,
+            2,
+            false,
+            30,
+        )
+        .is_err());
+    }
 
     fn encrypt_aes_cbc_for_test(data: &[u8], key: &[u8], iv: &[u8; 16]) -> Vec<u8> {
         let mut buf = vec![0u8; data.len() + 16];
