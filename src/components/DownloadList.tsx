@@ -15,7 +15,7 @@ import {
 } from "antd";
 import type { MenuProps } from "antd";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ColumnsType } from "antd/es/table";
 import {
   CaretRightOutlined,
@@ -41,6 +41,7 @@ import {
   isDirectFileType,
 } from "../types";
 import { getTaskReferer, openFileLocation, openUrl } from "../services/api";
+import { DownloadSegmentGrid } from "./DownloadSegmentGrid";
 
 interface CancelLabels {
   title?: string;
@@ -48,8 +49,6 @@ interface CancelLabels {
   okText?: string;
   cancelText?: string;
 }
-
-const MAX_RENDERED_SEGMENT_CHIPS = 400;
 
 interface DownloadListProps {
   downloads: DownloadTaskSummary[];
@@ -76,6 +75,8 @@ interface DownloadListProps {
   progressStatuses?: DownloadStatus[];
 }
 
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -92,16 +93,29 @@ function formatUpdatedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return new Intl.DateTimeFormat(currentLanguage(), {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
+  const language = currentLanguage();
+  let formatter = dateTimeFormatters.get(language);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(language, {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    dateTimeFormatters.set(language, formatter);
+  }
+  return formatter.format(date);
+}
+
+function shouldUpdateRow(
+  record: DownloadTaskSummary,
+  previousRecord: DownloadTaskSummary
+): boolean {
+  return record !== previousRecord;
 }
 
 function calculatePercentage(record: DownloadTaskSummary): number {
@@ -117,97 +131,6 @@ function calculatePercentage(record: DownloadTaskSummary): number {
   return (record.completed_segments / record.total_segments) * 100;
 }
 
-function renderSegmentGrid(segmentState: DownloadTaskSegmentState) {
-  const completedSet = new Set(segmentState.completed_segment_indices);
-  const failedSet = new Set(segmentState.failed_segment_indices);
-  const total = segmentState.total_segments;
-  let start = 1;
-  let end = total;
-
-  if (total > MAX_RENDERED_SEGMENT_CHIPS) {
-    let anchor = Number.POSITIVE_INFINITY;
-    for (const failedIndex of failedSet) {
-      anchor = Math.min(anchor, failedIndex);
-    }
-    if (!Number.isFinite(anchor)) {
-      anchor = total;
-      for (let index = 1; index <= total; index += 1) {
-        if (!completedSet.has(index) && !failedSet.has(index)) {
-          anchor = index;
-          break;
-        }
-      }
-    }
-
-    start = Math.max(
-      1,
-      anchor - Math.floor(MAX_RENDERED_SEGMENT_CHIPS / 2)
-    );
-    end = Math.min(total, start + MAX_RENDERED_SEGMENT_CHIPS - 1);
-    start = Math.max(1, end - MAX_RENDERED_SEGMENT_CHIPS + 1);
-  }
-
-  const segmentItems = Array.from(
-    { length: Math.max(0, end - start + 1) },
-    (_, index) => start + index
-  );
-
-  return (
-    <>
-      {total > MAX_RENDERED_SEGMENT_CHIPS ? (
-        <Typography.Text
-          type="secondary"
-          style={{ fontSize: 12, marginBottom: 6 }}
-        >
-          {t("segmentRangeSummary", {
-            value0: start,
-            value1: end,
-            value2: total,
-          })}
-        </Typography.Text>
-      ) : null}
-      <div
-        className="segment-grid"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(5, minmax(36px, max-content))",
-          gap: 6,
-          maxHeight: 220,
-          overflowY: "auto",
-          paddingRight: 18,
-        }}
-      >
-        {segmentItems.map((segmentNumber) => {
-          const completed = completedSet.has(segmentNumber);
-          const failed = failedSet.has(segmentNumber);
-          const segmentClassName = completed
-            ? "segment-chip segment-chip-completed"
-            : failed
-              ? "segment-chip segment-chip-failed"
-              : "segment-chip segment-chip-pending";
-
-          return (
-            <div
-              key={segmentNumber}
-              className={segmentClassName}
-              style={{
-                minWidth: 36,
-                padding: "2px 8px",
-                textAlign: "center",
-                fontSize: 12,
-                lineHeight: "20px",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {segmentNumber}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 function getStatusTag(status: DownloadStatus) {
   if (status === "Downloading") return <Tag color="processing">{t("downloading2")}</Tag>;
   if (status === "Paused") return <Tag color="warning">{t("paused")}</Tag>;
@@ -221,7 +144,7 @@ function getStatusTag(status: DownloadStatus) {
   return <Tag>{String(status)}</Tag>;
 }
 
-export function DownloadList({
+export const DownloadList = memo(function DownloadList({
   downloads,
   total,
   currentPage,
@@ -596,7 +519,9 @@ export function DownloadList({
             {t("retryFailedSegments")}</Button>
         ) : null}
         {loadingSegments && !segmentState ? <Spin size="small" /> : null}
-        {segmentState ? renderSegmentGrid(segmentState) : null}
+        {segmentState ? (
+          <DownloadSegmentGrid segmentState={segmentState} />
+        ) : null}
       </div>
     );
 
@@ -623,6 +548,7 @@ export function DownloadList({
     {
       title: t("filename"),
       key: "filename",
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         (() => {
           const isDirectDownload = isDirectFileType(record.file_type);
@@ -686,6 +612,7 @@ export function DownloadList({
       title: t("progress"),
       key: "progress",
       width: 280,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         <div>
           <Progress
@@ -731,6 +658,7 @@ export function DownloadList({
             title: t("speed"),
             key: "speed",
             width: 120,
+            shouldCellUpdate: shouldUpdateRow,
             render: (_: unknown, record: DownloadTaskSummary) =>
               record.status === "Downloading"
                 ? formatSpeed(record.speed_bytes_per_sec)
@@ -742,6 +670,7 @@ export function DownloadList({
       title: t("status"),
       key: "status",
       width: 180,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => {
         const isOngoingStatus =
           record.status === "Downloading" ||
@@ -793,6 +722,7 @@ export function DownloadList({
       ),
       key: "actions",
       width: 160,
+      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         <Space>
           {(() => {
@@ -983,4 +913,4 @@ export function DownloadList({
       </Dropdown>
     </>
   );
-}
+});

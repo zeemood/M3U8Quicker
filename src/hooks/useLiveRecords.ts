@@ -11,8 +11,10 @@ import type {
   LiveRecordSummary,
 } from "../types";
 import * as api from "../services/api";
+import { createProgressBatcher } from "../utils/progressBatcher";
 
 const DEFAULT_PAGE_SIZE = 50;
+const PROGRESS_FLUSH_INTERVAL_MS = 250;
 
 interface PageState {
   items: LiveRecordSummary[];
@@ -74,7 +76,17 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
     active: true,
     history: true,
   });
+  const activePageRef = useRef(activePage);
+  const historyPageRef = useRef(historyPage);
   const historyRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
+
+  useEffect(() => {
+    historyPageRef.current = historyPage;
+  }, [historyPage]);
 
   const refreshCounts = useCallback(async () => {
     const next = await api.getLiveRecordCounts();
@@ -86,7 +98,8 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
     async (group: LiveGroup, page?: number) => {
       setLoadingGroups((prev) => ({ ...prev, [group]: true }));
       try {
-        const currentPage = group === "active" ? activePage : historyPage;
+        const currentPage =
+          group === "active" ? activePageRef.current : historyPageRef.current;
         const pageSize =
           group === "history" ? historyPageSize : currentPage.pageSize;
         const next = await api.getLiveRecordsPage(
@@ -96,15 +109,17 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
         );
         const nextState = toPageState(next);
         if (group === "active") {
+          activePageRef.current = nextState;
           setActivePage(nextState);
         } else {
+          historyPageRef.current = nextState;
           setHistoryPage(nextState);
         }
       } finally {
         setLoadingGroups((prev) => ({ ...prev, [group]: false }));
       }
     },
-    [activePage, historyPage, historyPageSize]
+    [historyPageSize]
   );
 
   useEffect(() => {
@@ -116,8 +131,10 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
           api.getLiveRecordsPage("active", 1, DEFAULT_PAGE_SIZE),
         ]);
         if (disposed) return;
+        const nextActivePage = toPageState(active);
         setCounts(nextCounts);
-        setActivePage(toPageState(active));
+        activePageRef.current = nextActivePage;
+        setActivePage(nextActivePage);
       } catch (error) {
         console.error("Failed to initialize live records", error);
       } finally {
@@ -142,7 +159,9 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
       .getLiveRecordsPage("history", 1, historyPageSize)
       .then((history) => {
         if (!disposed && historyRequestIdRef.current === requestId) {
-          setHistoryPage(toPageState(history));
+          const nextHistoryPage = toPageState(history);
+          historyPageRef.current = nextHistoryPage;
+          setHistoryPage(nextHistoryPage);
         }
       })
       .catch((error) => {
@@ -159,21 +178,40 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
     };
   }, [historyPageSize]);
 
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+  const flushProgressEvents = useCallback(
+    (batchedEvents: Array<[string, LiveProgressEvent]>) => {
+      const hasTerminalEvent = batchedEvents.some(
+        ([, event]) => event.group !== "active"
+      );
 
-    listen<LiveProgressEvent>("live-progress", (event) => {
-      const progress = event.payload;
-      if (progress.group === "active") {
-        setActivePage((prev) => patchPageItem(prev, progress).nextPage);
+      setActivePage((prev) => {
+        let next = prev;
+
+        for (const [, event] of batchedEvents) {
+          if (event.group === "active") {
+            next = patchPageItem(next, event).nextPage;
+            continue;
+          }
+
+          const itemCount = next.items.length;
+          const items = next.items.filter((item) => item.id !== event.id);
+          if (items.length !== itemCount) {
+            next = {
+              ...next,
+              items,
+              total: Math.max(0, next.total - 1),
+            };
+          }
+        }
+
+        activePageRef.current = next;
+        return next;
+      });
+
+      if (!hasTerminalEvent) {
         return;
       }
-      // Item flipped to history. Remove from active and refresh both groups.
-      setActivePage((prev) => ({
-        ...prev,
-        items: prev.items.filter((item) => item.id !== progress.id),
-        total: Math.max(0, prev.total - 1),
-      }));
+
       void refreshCounts().catch((error) => {
         console.error("Failed to refresh live counts", error);
       });
@@ -183,14 +221,38 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
       void refreshGroup("history").catch((error) => {
         console.error("Failed to refresh history lives", error);
       });
-    }).then((fn) => {
-      unlisten = fn;
+    },
+    [refreshCounts, refreshGroup]
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    const progressBatcher = createProgressBatcher<string, LiveProgressEvent>({
+      intervalMs: PROGRESS_FLUSH_INTERVAL_MS,
+      onFlush: flushProgressEvents,
     });
 
+    void listen<LiveProgressEvent>("live-progress", ({ payload }) => {
+      progressBatcher.enqueue(payload.id, payload);
+    })
+      .then((fn) => {
+        if (disposed) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to subscribe to live progress", error);
+      });
+
     return () => {
+      disposed = true;
       unlisten?.();
+      progressBatcher.dispose();
     };
-  }, [refreshCounts, refreshGroup]);
+  }, [flushProgressEvents]);
 
   const addLiveRecord = useCallback(
     async (params: CreateLiveRecordParams) => {
@@ -280,6 +342,14 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
       message.error(t("failedToClearList", { value0: error }));
     }
   }, [counts.history_count, refreshCounts, refreshGroup]);
+  const refreshActive = useCallback(
+    (page?: number) => refreshGroup("active", page),
+    [refreshGroup]
+  );
+  const refreshHistory = useCallback(
+    (page?: number) => refreshGroup("history", page),
+    [refreshGroup]
+  );
 
   return {
     counts,
@@ -301,7 +371,7 @@ export function useLiveRecords(historyPageSize = DEFAULT_PAGE_SIZE) {
     remove,
     clearCompleted,
     refreshCounts,
-    refreshActive: (page?: number) => refreshGroup("active", page),
-    refreshHistory: (page?: number) => refreshGroup("history", page),
+    refreshActive,
+    refreshHistory,
   };
 }
