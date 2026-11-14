@@ -13,6 +13,7 @@
     "test:webview-rendering": "node scripts/test-webview-rendering.mjs",
     "test:i18n": "node --test scripts/test-i18n.mjs",
     "test:download-bulk-actions": "node scripts/test-download-bulk-actions.mjs",
+    "test:download-filename": "node scripts/test-download-filename.mjs",
     "test:download-list-actions": "node scripts/test-download-list-actions.mjs",
     "test:tolerant-merge-cleanup": "node scripts/test-tolerant-merge-cleanup.mjs",
     "test:tolerant-merge-actions": "node scripts/test-tolerant-merge-actions.mjs",

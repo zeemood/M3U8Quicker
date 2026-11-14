@@ -639,6 +639,28 @@ export function cleanDownloadUrlAfterFilenameCleanup(
   return result.matched ? removeTitleQueryParameter(url) : url;
 }
 
+export function resolveInitialDownloadFilename(
+  initialFilename: string | undefined,
+  initialUrl: string | undefined,
+  rules: FilenameCleanupRule[],
+  extraHeaders?: string
+): string | undefined {
+  const providedFilename = initialFilename?.trim();
+  const url = initialUrl?.trim();
+  const sourceFilename = providedFilename || (url ? deriveFilenameFromUrl(url) : "");
+  if (!sourceFilename) {
+    return undefined;
+  }
+
+  return (
+    applyFilenameCleanupRules(
+      sourceFilename,
+      rules,
+      url ? resolveFilenameCleanupSourceUrl(url, extraHeaders) : undefined
+    ) || undefined
+  );
+}
+
 export function resolveFilenameCleanupSourceUrl(
   url: string,
   extraHeaders?: string

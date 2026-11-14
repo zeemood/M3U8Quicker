@@ -23,6 +23,7 @@ import {
   inferDirectFileTypeFromUrl,
   isDirectFileType,
   resolveFilenameCleanupSourceUrl,
+  resolveInitialDownloadFilename,
   type CreateDownloadParams,
   type DownloadMode,
   type FileType,
@@ -93,12 +94,12 @@ export function NewDownloadModal({
               initialExtraHeaders
             );
             form.setFieldsValue({
-              filename:
-                applyFilenameCleanupRules(
-                  deriveFilenameFromUrl(initialUrl),
-                  rules,
-                  cleanupSourceUrl
-                ) || undefined,
+              filename: resolveInitialDownloadFilename(
+                initialFilename,
+                initialUrl,
+                rules,
+                initialExtraHeaders
+              ),
               url:
                 cleanDownloadUrlAfterFilenameCleanup(
                   initialUrl,
@@ -112,7 +113,7 @@ export function NewDownloadModal({
           console.error("Failed to load download settings", error);
           void getDefaultDownloadDir().then(setOutputDir).catch(() => {});
         });
-      setFilenameTouched(false);
+      setFilenameTouched(Boolean(initialFilename?.trim()));
       setFilenameCleanupRules([]);
       setPendingHlsParams(null);
       setHlsInspection(null);
@@ -126,9 +127,12 @@ export function NewDownloadModal({
       form.resetFields();
       form.setFieldsValue({
         url: initialUrl || undefined,
-        filename:
-          initialFilename ||
-          (initialUrl ? deriveFilenameFromUrl(initialUrl) || undefined : undefined),
+        filename: resolveInitialDownloadFilename(
+          initialFilename,
+          initialUrl,
+          [],
+          initialExtraHeaders
+        ),
         extra_headers: initialExtraHeaders || undefined,
       });
     }
