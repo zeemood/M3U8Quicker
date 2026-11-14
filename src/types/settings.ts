@@ -5,6 +5,8 @@ export const THEME_MODE_STORAGE_KEY = "m3u8quicker.themeMode";
 export const UPDATE_NOTIFICATIONS_STORAGE_KEY = "m3u8quicker.updateNotifications";
 export const DEFAULT_HISTORY_PAGE_SIZE = 50;
 export const HISTORY_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200] as const;
+export const DEFAULT_MERGE_FAILED_SEGMENT_LIMIT = 30;
+export const MAX_MERGE_FAILED_SEGMENT_LIMIT = 1000;
 
 export const ZOOM_STORAGE_KEY = "m3u8quicker.zoom";
 export const DEFAULT_ZOOM = 1;
@@ -46,6 +48,7 @@ export interface AppSettings {
   download_speed_limit_kbps: number;
   download_smart_speed_limit_enabled: boolean;
   download_smart_speed_limit_threshold: number;
+  merge_failed_segment_limit: number;
   preview_columns: number;
   preview_count: number;
   preview_thumbnail_width: number;

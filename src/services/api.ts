@@ -258,6 +258,14 @@ export async function setHistoryPageSize(pageSize: number): Promise<void> {
   return invoke("set_history_page_size", { pageSize });
 }
 
+export async function setMergeFailedSegmentLimit(
+  mergeFailedSegmentLimit: number
+): Promise<void> {
+  return invoke("set_merge_failed_segment_limit", {
+    mergeFailedSegmentLimit,
+  });
+}
+
 export async function setCloseToTray(closeToTray: boolean): Promise<void> {
   return invoke("set_close_to_tray", { closeToTray });
 }

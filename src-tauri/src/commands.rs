@@ -1308,6 +1308,7 @@ pub async fn get_app_settings(
         download_speed_limit_kbps: state.download_rate_limiter.limit_kbps().await,
         download_smart_speed_limit_enabled: smart_speed_limit_enabled,
         download_smart_speed_limit_threshold: smart_speed_limit_threshold,
+        merge_failed_segment_limit: saved_settings.merge_failed_segment_limit,
         preview_columns: *state.preview_columns.lock().await,
         preview_count: *state.preview_count.lock().await,
         preview_thumbnail_width: *state.preview_thumbnail_width.lock().await,
@@ -1692,6 +1693,21 @@ pub async fn set_history_page_size(
 
     persistence::update_settings(&app_handle, |settings| {
         settings.history_page_size = normalized_page_size;
+    })
+    .await;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_merge_failed_segment_limit(
+    app_handle: AppHandle,
+    merge_failed_segment_limit: usize,
+) -> Result<(), AppError> {
+    let normalized = normalize_merge_failed_segment_limit(merge_failed_segment_limit);
+
+    persistence::update_settings(&app_handle, |settings| {
+        settings.merge_failed_segment_limit = normalized;
     })
     .await;
 

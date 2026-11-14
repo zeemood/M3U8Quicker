@@ -484,6 +484,7 @@ pub fn run() {
             commands::set_preview_thumbnail_settings,
             commands::set_download_output_settings,
             commands::set_history_page_size,
+            commands::set_merge_failed_segment_limit,
             commands::set_close_to_tray,
             power::get_download_shutdown_status,
             power::set_download_shutdown_armed,
