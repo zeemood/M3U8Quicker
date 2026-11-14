@@ -4461,10 +4461,109 @@ pub fn validate_tolerant_merge_task(
 }
 
 async fn merge_segments(temp_dir: &Path, total: usize, output_path: &Path) -> Result<(), AppError> {
-    let segment_paths = (0..total)
-        .map(|index| segment_file_path(temp_dir, index))
+    let indices = (0..total).collect::<Vec<_>>();
+    merge_selected_segments(temp_dir, &indices, output_path).await
+}
+
+async fn merge_selected_segments(
+    temp_dir: &Path,
+    segment_indices: &[usize],
+    output_path: &Path,
+) -> Result<(), AppError> {
+    let segment_paths = segment_indices
+        .iter()
+        .map(|index| segment_file_path(temp_dir, *index))
         .collect::<Vec<_>>();
     merge_files(&segment_paths, output_path).await
+}
+
+pub async fn merge_single_stream_with_failed_segments(
+    task: &DownloadTask,
+    convert_to_mp4: bool,
+    ffmpeg_enabled: bool,
+    ffmpeg_path: Option<&Path>,
+) -> Result<PathBuf, AppError> {
+    let output_dir = PathBuf::from(&task.output_dir);
+    let temp_dir = temp_dir_for_task(&output_dir, &task.id);
+    let available_one_based = available_segment_indices(
+        task.total_segments,
+        &task.completed_segment_indices,
+        &task.failed_segment_indices,
+    );
+    let mut existing_one_based = Vec::new();
+    for index in available_one_based {
+        let path = segment_file_path_for_kind(&temp_dir, task.hls_media_kind, index - 1);
+        if tokio::fs::metadata(&path)
+            .await
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false)
+        {
+            existing_one_based.push(index);
+        }
+    }
+    if existing_one_based.is_empty() {
+        return Err(AppError::InvalidInput(
+            crate::i18n::tr("tolerantMergeUnavailable").to_string(),
+        ));
+    }
+
+    if task.hls_media_kind == HlsMediaKind::MpegTs {
+        let zero_based = existing_one_based
+            .iter()
+            .map(|index| index - 1)
+            .collect::<Vec<_>>();
+        let ts_path = resolve_available_output_path(
+            &output_dir,
+            &ensure_extension(&task.filename, "ts"),
+        );
+        merge_selected_segments(&temp_dir, &zero_based, &ts_path).await?;
+        if !convert_to_mp4 {
+            return Ok(ts_path);
+        }
+        let mp4_path = resolve_available_output_path(
+            &output_dir,
+            &ensure_extension(&task.filename, "mp4"),
+        );
+        convert_ts_to_mp4_file(
+            &ts_path,
+            &mp4_path,
+            true,
+            ffmpeg_enabled,
+            ffmpeg_path,
+        )
+        .await?;
+        return Ok(mp4_path);
+    }
+
+    let selected = task
+        .segment_uris
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| existing_one_based.contains(&(index + 1)))
+        .map(|(index, uri)| SegmentInfo {
+            index,
+            uri: uri.clone(),
+            duration: task.segment_durations.get(index).copied().unwrap_or(1.0),
+            sequence_number: index as u64,
+            byte_range: None,
+            init_segment_index: task.segment_init_indices.get(index).copied().flatten(),
+            encryption: None,
+        })
+        .collect::<Vec<_>>();
+    write_fmp4_local_playlist(&temp_dir, &task.hls_init_segments, &selected).await?;
+    let mp4_path = resolve_available_output_path(
+        &output_dir,
+        &ensure_extension(&task.filename, "mp4"),
+    );
+    convert_fmp4_segments_to_mp4(
+        &temp_dir,
+        &task.hls_init_segments,
+        &selected,
+        &mp4_path,
+        ffmpeg_path,
+    )
+    .await?;
+    Ok(mp4_path)
 }
 
 async fn convert_fmp4_segments_to_mp4(
@@ -5340,6 +5439,20 @@ mod tests {
             30,
         )
         .is_err());
+    }
+
+    #[tokio::test]
+    async fn merge_selected_segments_skips_missing_indices() {
+        let root = std::env::temp_dir().join(format!("m3u8q-merge-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(segment_file_path(&root, 0), b"one").unwrap();
+        std::fs::write(segment_file_path(&root, 2), b"three").unwrap();
+        let output = root.join("merged.ts");
+
+        merge_selected_segments(&root, &[0, 2], &output).await.unwrap();
+
+        assert_eq!(std::fs::read(&output).unwrap(), b"onethree");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn encrypt_aes_cbc_for_test(data: &[u8], key: &[u8], iv: &[u8; 16]) -> Vec<u8> {
