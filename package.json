@@ -11,6 +11,7 @@
     "test:segment-grid": "node scripts/test-segment-grid.mjs",
     "test:webview-rendering": "node scripts/test-webview-rendering.mjs",
     "test:i18n": "node --test scripts/test-i18n.mjs",
+    "test:download-bulk-actions": "node scripts/test-download-bulk-actions.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -1,5 +1,9 @@
-import { Button, Popconfirm, Tabs, Tag } from "antd";
-import { ClearOutlined } from "@ant-design/icons";
+import { Button, Popconfirm, Space, Tabs, Tag } from "antd";
+import {
+  CaretRightOutlined,
+  ClearOutlined,
+  PauseCircleOutlined,
+} from "@ant-design/icons";
 import {
   forwardRef,
   memo,
@@ -106,6 +110,9 @@ export const TaskTabs = memo(
       addDownloadsBatch,
       pause,
       resume,
+      pauseAll,
+      resumeAll,
+      bulkAction,
       retryFailed,
       cancel,
       remove,
@@ -220,6 +227,54 @@ export const TaskTabs = memo(
       }),
       [language]
     );
+    const activeDownloadActionsHeader = useMemo(
+      () => (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: 12,
+          }}
+        >
+          <Space size={8}>
+            <Button
+              size="small"
+              icon={<CaretRightOutlined />}
+              loading={bulkAction === "resume"}
+              disabled={
+                counts.active_count === 0 ||
+                loadingActive ||
+                bulkAction !== null
+              }
+              onClick={() => void resumeAll()}
+            >
+              {t("startAllDownloads", { lng: language })}
+            </Button>
+            <Button
+              size="small"
+              icon={<PauseCircleOutlined />}
+              loading={bulkAction === "pause"}
+              disabled={
+                counts.active_count === 0 ||
+                loadingActive ||
+                bulkAction !== null
+              }
+              onClick={() => void pauseAll()}
+            >
+              {t("pauseAllDownloads", { lng: language })}
+            </Button>
+          </Space>
+        </div>
+      ),
+      [
+        bulkAction,
+        counts.active_count,
+        language,
+        loadingActive,
+        pauseAll,
+        resumeAll,
+      ]
+    );
     const downloadHistoryHeader = useMemo(
       () => (
         <Popconfirm
@@ -275,22 +330,25 @@ export const TaskTabs = memo(
         key: "downloading",
         label: t("downloading", { value0: counts.active_count }),
         children: (
-          <DownloadList
-            downloads={downloading}
-            total={downloadingTotal}
-            currentPage={downloadingPage}
-            pageSize={downloadingPageSize}
-            onPageChange={handleActivePageChange}
-            getSegmentState={getSegmentState}
-            onPause={pause}
-            onResume={resume}
-            onRetryFailed={retryFailed}
-            onCancel={cancel}
-            onRemove={remove}
-            onPlay={onPlayDownload}
-            loading={loadingActive}
-            showActions={ACTIVE_DOWNLOAD_ACTIONS}
-          />
+          <>
+            {activeDownloadActionsHeader}
+            <DownloadList
+              downloads={downloading}
+              total={downloadingTotal}
+              currentPage={downloadingPage}
+              pageSize={downloadingPageSize}
+              onPageChange={handleActivePageChange}
+              getSegmentState={getSegmentState}
+              onPause={pause}
+              onResume={resume}
+              onRetryFailed={retryFailed}
+              onCancel={cancel}
+              onRemove={remove}
+              onPlay={onPlayDownload}
+              loading={loadingActive}
+              showActions={ACTIVE_DOWNLOAD_ACTIONS}
+            />
+          </>
         ),
       },
       {
