@@ -26,6 +26,7 @@ import {
   FolderOpenOutlined,
   GlobalOutlined,
   InfoCircleOutlined,
+  MergeCellsOutlined,
   PauseCircleOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -43,6 +44,11 @@ import {
 } from "../types";
 import { getTaskReferer, openFileLocation, openUrl } from "../services/api";
 import { DownloadSegmentGrid } from "./DownloadSegmentGrid";
+import { canMergeWithFailedSegments } from "../utils/tolerantMerge";
+import {
+  countSegmentStatuses,
+  type SegmentStatusFilter,
+} from "../utils/segmentFilters";
 
 interface CancelLabels {
   title?: string;
@@ -61,6 +67,7 @@ interface DownloadListProps {
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onRetryFailed: (id: string) => void;
+  onMergeFailedSegments?: (id: string) => Promise<unknown>;
   onCancel: (id: string) => void;
   onRemove: (id: string, deleteFile: boolean) => void;
   onStop?: (id: string) => void;
@@ -68,6 +75,7 @@ interface DownloadListProps {
   onAnalyze?: (filePath: string) => void;
   onPreview?: (task: DownloadTaskSummary) => void;
   loading: boolean;
+  mergeFailedSegmentLimit?: number;
   showActions: ("pause" | "resume" | "cancel" | "stop" | "remove" | "open" | "play")[];
   showSpeed?: boolean;
   actionsHeaderExtra?: ReactNode;
@@ -160,6 +168,7 @@ export const DownloadList = memo(function DownloadList({
   onPause,
   onResume,
   onRetryFailed,
+  onMergeFailedSegments,
   onCancel,
   onRemove,
   onStop,
@@ -167,6 +176,7 @@ export const DownloadList = memo(function DownloadList({
   onAnalyze,
   onPreview,
   loading,
+  mergeFailedSegmentLimit = 0,
   showActions,
   showSpeed = true,
   actionsHeaderExtra,
@@ -193,6 +203,10 @@ export const DownloadList = memo(function DownloadList({
   >(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [mergeConfirmId, setMergeConfirmId] = useState<string | null>(null);
+  const [mergingTaskId, setMergingTaskId] = useState<string | null>(null);
+  const [segmentStatusFilter, setSegmentStatusFilter] =
+    useState<SegmentStatusFilter | null>(null);
 
   const buildMenuItems = (
     record: DownloadTaskSummary | undefined
@@ -263,6 +277,16 @@ export const DownloadList = memo(function DownloadList({
         icon: <ReloadOutlined />,
         label: t(record.failed_segment_count > 0 ? "retryFailedSegments" : "retry"),
         disabled: record.direct_parallel === true && record.status === "Downloading",
+      });
+    }
+    if (
+      onMergeFailedSegments &&
+      canMergeWithFailedSegments(record, mergeFailedSegmentLimit)
+    ) {
+      opGroup.push({
+        key: "merge-available",
+        icon: <MergeCellsOutlined />,
+        label: t("tolerantMerge"),
       });
     }
 
@@ -343,6 +367,9 @@ export const DownloadList = memo(function DownloadList({
       case "retry":
         onRetryFailed(record.id);
         return;
+      case "merge-available":
+        setMergeConfirmId(record.id);
+        return;
       case "cancel":
         setCancelConfirmId(record.id);
         return;
@@ -370,6 +397,19 @@ export const DownloadList = memo(function DownloadList({
         })();
         return;
       }
+    }
+  };
+
+  const handleMergeFailedSegments = async (id: string) => {
+    if (!onMergeFailedSegments) {
+      return;
+    }
+    setMergingTaskId(id);
+    try {
+      await onMergeFailedSegments(id);
+    } finally {
+      setMergeConfirmId(null);
+      setMergingTaskId((current) => (current === id ? null : current));
     }
   };
 
@@ -462,6 +502,7 @@ export const DownloadList = memo(function DownloadList({
       }
       openSegmentPopoverIdRef.current = null;
       setOpenSegmentPopoverId(null);
+      setSegmentStatusFilter(null);
       pendingSegmentRecordRef.current = null;
       if (segmentRefreshTimerRef.current !== null) {
         clearTimeout(segmentRefreshTimerRef.current);
@@ -485,6 +526,7 @@ export const DownloadList = memo(function DownloadList({
     }
 
     if (openSegmentPopoverIdRef.current !== record.id) {
+      setSegmentStatusFilter(null);
       pendingSegmentRecordRef.current = null;
       if (segmentRefreshTimerRef.current !== null) {
         clearTimeout(segmentRefreshTimerRef.current);
@@ -506,6 +548,19 @@ export const DownloadList = memo(function DownloadList({
     const failedSegmentCount =
       segmentState?.failed_segment_indices.length ?? record.failed_segment_count;
     const totalSegments = segmentState?.total_segments ?? record.total_segments;
+    const statusCounts = segmentState
+      ? countSegmentStatuses(segmentState)
+      : {
+          completed: completedSegmentCount,
+          failed: failedSegmentCount,
+          incomplete: Math.max(
+            0,
+            totalSegments - completedSegmentCount - failedSegmentCount
+          ),
+        };
+    const toggleSegmentStatusFilter = (status: SegmentStatusFilter) => {
+      setSegmentStatusFilter((current) => (current === status ? null : status));
+    };
 
     const content = (
       <div
@@ -524,11 +579,71 @@ export const DownloadList = memo(function DownloadList({
           </Typography.Text>
         </Space>
         <Space size={12} wrap style={{ display: "flex", marginBottom: 12 }}>
-          <Tag color="success" style={{ marginInlineEnd: 0 }}>
-            {t("completed2")}</Tag>
-          <Tag color="error" style={{ marginInlineEnd: 0 }}>
-            {t("failed")}</Tag>
-          <Tag style={{ marginInlineEnd: 0 }}>{t("incomplete")}</Tag>
+          <Tag
+            color="success"
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleSegmentStatusFilter("completed")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleSegmentStatusFilter("completed");
+              }
+            }}
+            style={{
+              marginInlineEnd: 0,
+              cursor: "pointer",
+              opacity:
+                segmentStatusFilter === null ||
+                segmentStatusFilter === "completed"
+                  ? 1
+                  : 0.45,
+            }}
+          >
+            {t("completed2")} {statusCounts.completed}</Tag>
+          <Tag
+            color="error"
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleSegmentStatusFilter("failed")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleSegmentStatusFilter("failed");
+              }
+            }}
+            style={{
+              marginInlineEnd: 0,
+              cursor: "pointer",
+              opacity:
+                segmentStatusFilter === null ||
+                segmentStatusFilter === "failed"
+                  ? 1
+                  : 0.45,
+            }}
+          >
+            {t("failed")} {statusCounts.failed}</Tag>
+          <Tag
+            role="button"
+            tabIndex={0}
+            onClick={() => toggleSegmentStatusFilter("incomplete")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleSegmentStatusFilter("incomplete");
+              }
+            }}
+            style={{
+              marginInlineEnd: 0,
+              cursor: "pointer",
+              opacity:
+                segmentStatusFilter === null ||
+                segmentStatusFilter === "incomplete"
+                  ? 1
+                  : 0.45,
+            }}
+          >
+            {t("incomplete")} {statusCounts.incomplete}</Tag>
         </Space>
         {failedSegmentCount > 0 ? (
           <Button
@@ -543,7 +658,10 @@ export const DownloadList = memo(function DownloadList({
         ) : null}
         {loadingSegments && !segmentState ? <Spin size="small" /> : null}
         {segmentState ? (
-          <DownloadSegmentGrid segmentState={segmentState} />
+          <DownloadSegmentGrid
+            segmentState={segmentState}
+            filterStatus={segmentStatusFilter}
+          />
         ) : null}
       </div>
     );
@@ -640,7 +758,6 @@ export const DownloadList = memo(function DownloadList({
       title: t("progress"),
       key: "progress",
       width: 280,
-      shouldCellUpdate: shouldUpdateRow,
       render: (_, record) => (
         <div>
           <Progress
@@ -749,8 +866,7 @@ export const DownloadList = memo(function DownloadList({
         </div>
       ),
       key: "actions",
-      width: 160,
-      shouldCellUpdate: shouldUpdateRow,
+      width: 200,
       render: (_, record) => (
         <Space>
           {(() => {
@@ -800,6 +916,33 @@ export const DownloadList = memo(function DownloadList({
                   size="small"
                 />
               </Tooltip>
+            )}
+          {onMergeFailedSegments &&
+            canMergeWithFailedSegments(record, mergeFailedSegmentLimit) && (
+              <Popconfirm
+                title={t("tolerantMerge")}
+                description={t("tolerantMergeConfirmation")}
+                open={mergeConfirmId === record.id}
+                onOpenChange={(open) =>
+                  setMergeConfirmId(open ? record.id : null)
+                }
+                onConfirm={() => {
+                  setMergeConfirmId(null);
+                  void handleMergeFailedSegments(record.id);
+                }}
+                onCancel={() => setMergeConfirmId(null)}
+                okText={t("tolerantMerge")}
+                cancelText={t("cancel")}
+              >
+                <Tooltip title={t("tolerantMergeHint")}>
+                  <Button
+                    type="text"
+                    icon={<MergeCellsOutlined />}
+                    size="small"
+                    loading={mergingTaskId === record.id}
+                  />
+                </Tooltip>
+              </Popconfirm>
             )}
           {showActions.includes("stop") &&
             onStop &&

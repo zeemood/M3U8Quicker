@@ -1,18 +1,22 @@
 import type { DownloadTaskSegmentState } from "../types";
+import {
+  getSegmentStatus,
+  getVisibleSegmentNumbers,
+  type SegmentStatusFilter,
+} from "../utils/segmentFilters";
 
 interface DownloadSegmentGridProps {
   segmentState: DownloadTaskSegmentState;
+  filterStatus?: SegmentStatusFilter | null;
 }
 
 export function DownloadSegmentGrid({
   segmentState,
+  filterStatus = null,
 }: DownloadSegmentGridProps) {
   const completedSet = new Set(segmentState.completed_segment_indices);
   const failedSet = new Set(segmentState.failed_segment_indices);
-  const segmentItems = Array.from(
-    { length: segmentState.total_segments },
-    (_, index) => index + 1
-  );
+  const segmentItems = getVisibleSegmentNumbers(segmentState, filterStatus);
 
   return (
     <div
@@ -27,13 +31,17 @@ export function DownloadSegmentGrid({
       }}
     >
       {segmentItems.map((segmentNumber) => {
-        const completed = completedSet.has(segmentNumber);
-        const failed = failedSet.has(segmentNumber);
-        const segmentClassName = completed
-          ? "segment-chip segment-chip-completed"
-          : failed
-            ? "segment-chip segment-chip-failed"
-            : "segment-chip segment-chip-pending";
+        const status = getSegmentStatus(
+          segmentNumber,
+          completedSet,
+          failedSet
+        );
+        const segmentClassName =
+          status === "completed"
+            ? "segment-chip segment-chip-completed"
+            : status === "failed"
+              ? "segment-chip segment-chip-failed"
+              : "segment-chip segment-chip-pending";
 
         return (
           <div

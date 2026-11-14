@@ -95,6 +95,14 @@ export async function retryFailedSegments(id: string): Promise<DownloadTaskSumma
   return invoke<DownloadTaskSummary>("retry_failed_segments", { id });
 }
 
+export async function mergeDownloadWithFailedSegments(
+  id: string
+): Promise<DownloadTaskSummary> {
+  return invoke<DownloadTaskSummary>("merge_download_with_failed_segments", {
+    id,
+  });
+}
+
 export async function getDownloadCounts(): Promise<DownloadCounts> {
   return invoke<DownloadCounts>("get_download_counts");
 }

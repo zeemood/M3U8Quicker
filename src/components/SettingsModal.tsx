@@ -59,6 +59,7 @@ import {
   setHistoryPageSize,
   setIgnoreHttpsCertificateErrors,
   setLiveRecordSettings,
+  setMergeFailedSegmentLimit,
   setProxySettings,
   setTimeoutSettings,
   setUserAgent,
@@ -66,7 +67,9 @@ import {
 } from "../services/api";
 import {
   DEFAULT_HISTORY_PAGE_SIZE,
+  DEFAULT_MERGE_FAILED_SEGMENT_LIMIT,
   HISTORY_PAGE_SIZE_OPTIONS,
+  MAX_MERGE_FAILED_SEGMENT_LIMIT,
   MAX_ZOOM,
   MIN_ZOOM,
   normalizeZoom,
@@ -147,10 +150,12 @@ interface SettingsModalProps {
   updateNotificationsEnabled: boolean;
   onUpdateNotificationsChange: (enabled: boolean) => void;
   historyPageSize?: number;
+  mergeFailedSegmentLimit?: number;
   onClose: () => void;
   onThemeModeChange: (mode: ThemeMode) => void;
   onZoomChange: Dispatch<SetStateAction<number>>;
   onHistoryPageSizeChange?: (pageSize: number) => void;
+  onMergeFailedSegmentLimitChange?: (limit: number) => void;
   onUpdateAvailabilityChange?: (available: boolean) => void;
 }
 
@@ -212,10 +217,12 @@ export function SettingsModal({
   updateNotificationsEnabled,
   onUpdateNotificationsChange,
   historyPageSize = DEFAULT_HISTORY_PAGE_SIZE,
+  mergeFailedSegmentLimit = DEFAULT_MERGE_FAILED_SEGMENT_LIMIT,
   onClose,
   onThemeModeChange,
   onZoomChange,
   onHistoryPageSizeChange,
+  onMergeFailedSegmentLimitChange,
   onUpdateAvailabilityChange,
 }: SettingsModalProps) {
   useTranslation();
@@ -286,6 +293,10 @@ export function SettingsModal({
   const [historyPageSizeValue, setHistoryPageSizeValue] =
     useState(historyPageSize);
   const [savingHistoryPageSize, setSavingHistoryPageSize] = useState(false);
+  const [mergeFailedSegmentLimitValue, setMergeFailedSegmentLimitValue] =
+    useState(mergeFailedSegmentLimit);
+  const [savingMergeFailedSegmentLimit, setSavingMergeFailedSegmentLimit] =
+    useState(false);
   // 关闭窗口时的行为：true=最小化到系统托盘，false=退出应用
   const [closeToTray, setCloseToTrayState] = useState(true);
   const [savingCloseToTray, setSavingCloseToTray] = useState(false);
@@ -373,6 +384,8 @@ export function SettingsModal({
         setLiveRetryFlvMs(settings.live_retry_flv_ms);
         setHistoryPageSizeValue(settings.history_page_size);
         onHistoryPageSizeChange?.(settings.history_page_size);
+        setMergeFailedSegmentLimitValue(settings.merge_failed_segment_limit);
+        onMergeFailedSegmentLimitChange?.(settings.merge_failed_segment_limit);
         setCloseToTrayState(settings.close_to_tray);
       })
       .catch((error) => {
@@ -382,11 +395,15 @@ export function SettingsModal({
 
     getDefaultDownloadDir().then(setDefaultDownloadDirState).catch(() => {});
     getFfmpegStatus().then(setFfmpegStatus).catch(() => {});
-  }, [initialTab, onHistoryPageSizeChange, open]);
+  }, [initialTab, onHistoryPageSizeChange, onMergeFailedSegmentLimitChange, open]);
 
   useEffect(() => {
     setHistoryPageSizeValue(historyPageSize);
   }, [historyPageSize]);
+
+  useEffect(() => {
+    setMergeFailedSegmentLimitValue(mergeFailedSegmentLimit);
+  }, [mergeFailedSegmentLimit]);
 
   useEffect(() => {
     return () => {
@@ -646,6 +663,35 @@ export function SettingsModal({
       onHistoryPageSizeChange?.(settings.history_page_size);
     } finally {
       setSavingHistoryPageSize(false);
+    }
+  };
+
+  const saveMergeFailedSegmentLimitValue = async (value: number) => {
+    const normalized = Math.min(
+      MAX_MERGE_FAILED_SEGMENT_LIMIT,
+      Math.max(0, Math.trunc(value))
+    );
+    setMergeFailedSegmentLimitValue(normalized);
+    if (normalized === mergeFailedSegmentLimit) {
+      return;
+    }
+
+    setSavingMergeFailedSegmentLimit(true);
+    try {
+      await setMergeFailedSegmentLimit(normalized);
+      onMergeFailedSegmentLimitChange?.(normalized);
+      message.success(t("mergeFailedSegmentLimitSaved"));
+    } catch (error) {
+      message.error(
+        t("failedToSaveMergeFailedSegmentLimit", {
+          value0: formatSettingsError(error),
+        })
+      );
+      const settings = await getAppSettings();
+      setMergeFailedSegmentLimitValue(settings.merge_failed_segment_limit);
+      onMergeFailedSegmentLimitChange?.(settings.merge_failed_segment_limit);
+    } finally {
+      setSavingMergeFailedSegmentLimit(false);
     }
   };
 
@@ -1376,6 +1422,30 @@ export function SettingsModal({
                 />
               </Space>
             </Space>
+          </Space>
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <SectionTitle>{t("mergeFailedSegmentLimit")}</SectionTitle>
+            <InputNumber
+              min={0}
+              max={MAX_MERGE_FAILED_SEGMENT_LIMIT}
+              precision={0}
+              value={mergeFailedSegmentLimitValue}
+              style={{ width: 180 }}
+              disabled={loading || savingMergeFailedSegmentLimit}
+              onChange={(value) =>
+                setMergeFailedSegmentLimitValue(
+                  typeof value === "number" ? value : 0
+                )
+              }
+              onBlur={() =>
+                void saveMergeFailedSegmentLimitValue(
+                  mergeFailedSegmentLimitValue
+                )
+              }
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t("mergeFailedSegmentLimitHint")}
+            </Typography.Text>
           </Space>
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <SectionTitle>{t("requestTimeouts")}</SectionTitle>

@@ -69,6 +69,7 @@ import {
 import type { ThemeMode } from "./types/settings";
 import {
   DEFAULT_HISTORY_PAGE_SIZE,
+  DEFAULT_MERGE_FAILED_SEGMENT_LIMIT,
   DEFAULT_ZOOM,
   normalizeZoom,
   UPDATE_NOTIFICATIONS_STORAGE_KEY,
@@ -165,6 +166,9 @@ function App({
   const showUpdateDot = updateNotificationsEnabled && updateAvailable;
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_HISTORY_PAGE_SIZE);
+  const [mergeFailedSegmentLimit, setMergeFailedSegmentLimit] = useState(
+    DEFAULT_MERGE_FAILED_SEGMENT_LIMIT
+  );
   const taskTabsRef = useRef<TaskTabsHandle>(null);
   const [chromiumInstallGuide, setChromiumInstallGuide] =
     useState<ChromiumInstallGuideState | null>(null);
@@ -288,6 +292,7 @@ function App({
       .then((settings) => {
         if (!cancelled) {
           setHistoryPageSize(settings.history_page_size);
+          setMergeFailedSegmentLimit(settings.merge_failed_segment_limit);
           setProxyEnabled(settings.proxy.enabled);
         }
       })
@@ -799,6 +804,7 @@ function App({
         <TaskTabs
           ref={taskTabsRef}
           historyPageSize={historyPageSize}
+          mergeFailedSegmentLimit={mergeFailedSegmentLimit}
           onPlayDownload={handleOpenPlaybackWindow}
           onPlayLive={handleOpenLivePlaybackWindow}
           onPreviewDownload={handlePreviewDownload}
@@ -838,6 +844,7 @@ function App({
         updateNotificationsEnabled={updateNotificationsEnabled}
         onUpdateNotificationsChange={setUpdateNotificationsEnabled}
         historyPageSize={historyPageSize}
+        mergeFailedSegmentLimit={mergeFailedSegmentLimit}
         onClose={() => {
           setSettingsOpen(false);
           setSettingsInitialTab("general");
@@ -845,6 +852,7 @@ function App({
         onThemeModeChange={onThemeModeChange}
         onZoomChange={onZoomChange}
         onHistoryPageSizeChange={setHistoryPageSize}
+        onMergeFailedSegmentLimitChange={setMergeFailedSegmentLimit}
         onUpdateAvailabilityChange={setUpdateAvailable}
       />
       <ToolsModal

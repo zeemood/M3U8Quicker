@@ -5574,6 +5574,8 @@ mod tests {
             encryption_method: None,
             output_dir: output_dir.to_string_lossy().into_owned(),
             extra_headers: None,
+            direct_parallel: false,
+            direct_info: None,
             status: DownloadStatus::Paused,
             total_segments,
             completed_segments: completed_segment_indices.len(),

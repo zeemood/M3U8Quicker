@@ -634,6 +634,24 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     return task;
   }, [refreshCounts, refreshGroup]);
 
+  const mergeWithFailedSegments = useCallback(async (id: string) => {
+    try {
+      const task = await api.mergeDownloadWithFailedSegments(id);
+      await refreshCounts();
+      await Promise.all([refreshGroup("active"), refreshGroup("history")]);
+      message.success(t("tolerantMergeCompleted"));
+      return task;
+    } catch (error) {
+      console.error("Failed to merge available download segments:", error);
+      message.error(
+        t("failedToMergeFailedSegments", {
+          value0: error instanceof Error ? error.message : String(error),
+        })
+      );
+      return undefined;
+    }
+  }, [refreshCounts, refreshGroup]);
+
   const cancel = useCallback(async (id: string) => {
     await api.cancelDownload(id);
   }, []);
@@ -695,6 +713,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     resumeAll,
     bulkAction,
     retryFailed,
+    mergeWithFailedSegments,
     cancel,
     remove,
     clearCompleted,
