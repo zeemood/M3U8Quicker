@@ -3004,6 +3004,12 @@ pub(crate) fn task_to_progress(task: &DownloadTask) -> DownloadProgressEvent {
     }
 }
 
+fn mark_download_incomplete(task: &mut DownloadTask) {
+    task.status = DownloadStatus::Paused;
+    task.speed_bytes_per_sec = 0;
+    task.touch();
+}
+
 pub(crate) async fn get_or_load_task(
     app_handle: &AppHandle,
     state: &State<'_, AppState>,
@@ -3176,8 +3182,7 @@ async fn start_mp4_download_worker(
                         remove_from_runtime = true;
                     }
                     Ok(downloader::DownloadRunOutcome::Incomplete) => {
-                        task.speed_bytes_per_sec = 0;
-                        task.touch();
+                        mark_download_incomplete(task);
                         progress_to_emit = Some(task_to_progress(task));
                         should_save = true;
                     }
@@ -3350,8 +3355,7 @@ async fn start_download_worker(
                         remove_from_runtime = true;
                     }
                     Ok(downloader::DownloadRunOutcome::Incomplete) => {
-                        task.speed_bytes_per_sec = 0;
-                        task.touch();
+                        mark_download_incomplete(task);
                         progress_to_emit = Some(task_to_progress(task));
                         should_save = true;
                     }
@@ -3517,8 +3521,7 @@ async fn start_hls_bundle_download_worker(
                         remove_from_runtime = true;
                     }
                     Ok(downloader::DownloadRunOutcome::Incomplete) => {
-                        task.speed_bytes_per_sec = 0;
-                        task.touch();
+                        mark_download_incomplete(task);
                         progress_to_emit = Some(task_to_progress(task));
                         should_save = true;
                     }
@@ -5081,6 +5084,18 @@ pub async fn close_live_playback_session(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn incomplete_download_is_paused_and_releases_runtime_state() {
+        let mut task = build_task(vec!["https://example.com/a.ts"]);
+        task.speed_bytes_per_sec = 1024;
+        task.status = DownloadStatus::Downloading;
+
+        mark_download_incomplete(&mut task);
+
+        assert_eq!(task.status, DownloadStatus::Paused);
+        assert_eq!(task.speed_bytes_per_sec, 0);
+    }
 
     #[tokio::test]
     async fn rebuilding_http_client_preserves_https_certificate_setting_and_user_agent() {
