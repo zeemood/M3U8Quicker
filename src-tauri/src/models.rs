@@ -336,6 +336,8 @@ pub const MAX_DOWNLOAD_CONCURRENCY: usize = 10000;
 pub const DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS: u64 = 0;
 pub const DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD: usize = 3;
 pub const MIN_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD: usize = 1;
+pub const DEFAULT_MERGE_FAILED_SEGMENT_LIMIT: usize = 30;
+pub const MAX_MERGE_FAILED_SEGMENT_LIMIT: usize = 1000;
 pub const DEFAULT_PREVIEW_COLUMNS: usize = 3;
 pub const MIN_PREVIEW_COLUMNS: usize = 1;
 pub const MAX_PREVIEW_COLUMNS: usize = 12;
@@ -400,6 +402,10 @@ pub fn normalize_download_speed_limit_kbps(value: u64) -> u64 {
 
 pub fn normalize_download_smart_speed_limit_threshold(value: usize) -> usize {
     value.max(MIN_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD)
+}
+
+pub fn normalize_merge_failed_segment_limit(value: usize) -> usize {
+    value.min(MAX_MERGE_FAILED_SEGMENT_LIMIT)
 }
 
 pub fn normalize_preview_columns(value: usize) -> usize {
@@ -509,6 +515,8 @@ pub struct AppSettings {
     pub download_smart_speed_limit_enabled: bool,
     #[serde(default = "default_download_smart_speed_limit_threshold")]
     pub download_smart_speed_limit_threshold: usize,
+    #[serde(default = "default_merge_failed_segment_limit")]
+    pub merge_failed_segment_limit: usize,
     pub preview_columns: usize,
     pub preview_count: usize,
     pub preview_thumbnail_width: u32,
@@ -562,6 +570,7 @@ impl Default for AppSettings {
             download_speed_limit_kbps: DEFAULT_DOWNLOAD_SPEED_LIMIT_KBPS,
             download_smart_speed_limit_enabled: false,
             download_smart_speed_limit_threshold: DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD,
+            merge_failed_segment_limit: DEFAULT_MERGE_FAILED_SEGMENT_LIMIT,
             preview_columns: DEFAULT_PREVIEW_COLUMNS,
             preview_count: DEFAULT_PREVIEW_COUNT,
             preview_thumbnail_width: DEFAULT_PREVIEW_THUMBNAIL_WIDTH,
@@ -596,6 +605,10 @@ fn default_history_page_size() -> usize {
 
 fn default_download_smart_speed_limit_threshold() -> usize {
     DEFAULT_DOWNLOAD_SMART_SPEED_LIMIT_THRESHOLD
+}
+
+fn default_merge_failed_segment_limit() -> usize {
+    DEFAULT_MERGE_FAILED_SEGMENT_LIMIT
 }
 
 fn default_close_to_tray() -> bool {
@@ -663,6 +676,8 @@ impl AppSettings {
             normalize_download_smart_speed_limit_threshold(
                 self.download_smart_speed_limit_threshold,
             );
+        self.merge_failed_segment_limit =
+            normalize_merge_failed_segment_limit(self.merge_failed_segment_limit);
         if self.download_smart_speed_limit_enabled && self.download_speed_limit_kbps == 0 {
             self.download_smart_speed_limit_enabled = false;
         }
@@ -1390,11 +1405,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn https_certificate_errors_are_not_ignored_by_default_or_legacy_settings() {
+    fn app_settings_defaults_merge_failed_segment_limit_to_30() {
+        let settings = AppSettings::default();
+        assert_eq!(
+            settings.merge_failed_segment_limit,
+            DEFAULT_MERGE_FAILED_SEGMENT_LIMIT
+        );
+    }
+
+    #[test]
+    fn app_settings_clamps_merge_failed_segment_limit() {
+        let mut settings = AppSettings {
+            merge_failed_segment_limit: MAX_MERGE_FAILED_SEGMENT_LIMIT + 1,
+            ..AppSettings::default()
+        };
+        settings.sanitize();
+        assert_eq!(
+            settings.merge_failed_segment_limit,
+            MAX_MERGE_FAILED_SEGMENT_LIMIT
+        );
+    }
+
+    #[test]
+    fn app_settings_normalizes_merge_failed_segment_limit_boundaries() {
+        let cases = [
+            (0, 0),
+            (30, 30),
+            (MAX_MERGE_FAILED_SEGMENT_LIMIT, MAX_MERGE_FAILED_SEGMENT_LIMIT),
+            (MAX_MERGE_FAILED_SEGMENT_LIMIT + 1, MAX_MERGE_FAILED_SEGMENT_LIMIT),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                normalize_merge_failed_segment_limit(input),
+                expected,
+                "unexpected normalization for {input}"
+            );
+        }
+    }
+
+    #[test]
+    fn app_settings_https_certificate_errors_are_not_ignored_by_default_or_legacy_settings() {
         assert!(!AppSettings::default().ignore_https_certificate_errors);
         let legacy: AppSettings = serde_json::from_str(r#"{"user_agent":"legacy-agent"}"#).unwrap();
         assert!(!legacy.ignore_https_certificate_errors);
         assert_eq!(legacy.user_agent, "legacy-agent");
+        assert_eq!(
+            legacy.merge_failed_segment_limit,
+            DEFAULT_MERGE_FAILED_SEGMENT_LIMIT
+        );
     }
 
     #[test]

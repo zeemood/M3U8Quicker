@@ -95,6 +95,14 @@ export async function retryFailedSegments(id: string): Promise<DownloadTaskSumma
   return invoke<DownloadTaskSummary>("retry_failed_segments", { id });
 }
 
+export async function mergeDownloadWithFailedSegments(
+  id: string
+): Promise<DownloadTaskSummary> {
+  return invoke<DownloadTaskSummary>("merge_download_with_failed_segments", {
+    id,
+  });
+}
+
 export async function getDownloadCounts(): Promise<DownloadCounts> {
   return invoke<DownloadCounts>("get_download_counts");
 }
@@ -256,6 +264,14 @@ export async function setDownloadSpeedLimit(
 
 export async function setHistoryPageSize(pageSize: number): Promise<void> {
   return invoke("set_history_page_size", { pageSize });
+}
+
+export async function setMergeFailedSegmentLimit(
+  mergeFailedSegmentLimit: number
+): Promise<void> {
+  return invoke("set_merge_failed_segment_limit", {
+    mergeFailedSegmentLimit,
+  });
 }
 
 export async function setCloseToTray(closeToTray: boolean): Promise<void> {

@@ -80,6 +80,7 @@ export interface TaskTabsHandle {
 
 export interface TaskTabsProps {
   historyPageSize: number;
+  mergeFailedSegmentLimit: number;
   onPlayDownload: (task: DownloadTaskSummary) => void;
   onPlayLive: (task: DownloadTaskSummary) => void;
   onPreviewDownload: (task: DownloadTaskSummary) => void;
@@ -91,6 +92,7 @@ export const TaskTabs = memo(
   forwardRef<TaskTabsHandle, TaskTabsProps>(function TaskTabs(
     {
       historyPageSize,
+      mergeFailedSegmentLimit,
       onPlayDownload,
       onPlayLive,
       onPreviewDownload,
@@ -121,6 +123,7 @@ export const TaskTabs = memo(
       resumeAll,
       bulkAction,
       retryFailed,
+      mergeWithFailedSegments,
       cancel,
       remove,
       clearCompleted,
@@ -353,6 +356,8 @@ export const TaskTabs = memo(
               onPause={pause}
               onResume={resume}
               onRetryFailed={retryFailed}
+              mergeFailedSegmentLimit={mergeFailedSegmentLimit}
+              onMergeFailedSegments={mergeWithFailedSegments}
               onCancel={cancel}
               onRemove={remove}
               onPlay={onPlayDownload}
@@ -376,6 +381,8 @@ export const TaskTabs = memo(
             onPause={pause}
             onResume={resume}
             onRetryFailed={retryFailed}
+            mergeFailedSegmentLimit={mergeFailedSegmentLimit}
+            onMergeFailedSegments={mergeWithFailedSegments}
             onCancel={cancel}
             onRemove={remove}
             onPlay={onPlayDownload}

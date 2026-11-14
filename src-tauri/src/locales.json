@@ -119,6 +119,18 @@
     "pt-BR": "Somente baixar ou pausar as tarefas pode repetir os segmentos falhou",
     "ru": "Только загрузка или приостановка задач может восстановить неудачные сегменты"
   },
+  "tolerantMergeUnavailable": {
+    "en": "No available segments can be merged for this task.",
+    "zh-CN": "当前任务没有可用于容错合并的分片。",
+    "zh-TW": "目前任務沒有可用於容錯合併的分片。",
+    "ja": "このタスクには結合できるセグメントがありません。",
+    "ko": "이 작업에는 병합할 수 있는 조각이 없습니다.",
+    "es": "No hay segmentos disponibles para combinar en esta tarea.",
+    "fr": "Aucun segment disponible ne peut être fusionné pour cette tâche.",
+    "de": "Für diese Aufgabe können keine verfügbaren Segmente zusammengeführt werden.",
+    "pt-BR": "Não há segmentos disponíveis para mesclar nesta tarefa.",
+    "ru": "Для этой задачи нет доступных сегментов для объединения."
+  },
   "onlyDownloadingOrPausedTasksCanBeCancelled": {
     "en": "Only downloading or paused tasks can be cancelled",
     "zh-CN": "只有下载中或已暂停的任务可以取消",
