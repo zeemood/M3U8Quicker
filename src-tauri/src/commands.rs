@@ -1009,123 +1009,6 @@ pub async fn retry_failed_segments(
 }
 
 #[tauri::command]
-pub async fn merge_download_with_failed_segments(
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<DownloadTaskSummary, AppError> {
-    let task = get_or_load_task(&app_handle, &state, &id).await?;
-    let settings = persistence::load_settings(&app_handle).await;
-    let has_running_token = state.cancel_tokens.lock().await.contains_key(&id);
-    let task_is_running =
-        has_running_token || !matches!(task.status, DownloadStatus::Paused | DownloadStatus::Failed(_));
-    downloader::validate_tolerant_merge_task(
-        task.file_type,
-        task.hls_output_mode,
-        task.total_segments,
-        task.completed_segment_indices.len(),
-        task.failed_segment_indices.len(),
-        task_is_running,
-        settings.merge_failed_segment_limit,
-    )?;
-
-    let convert_to_mp4 = *state.convert_to_mp4.lock().await;
-    let ffmpeg_enabled = *state.ffmpeg_enabled.lock().await;
-    let merging_task = {
-        let mut downloads = state.downloads.lock().await;
-        downloads.entry(id.clone()).or_insert_with(|| task.clone());
-        let current = downloads
-            .get_mut(&id)
-            .ok_or_else(|| AppError::InvalidInput(format!("Download {} not found", id)))?;
-        downloader::validate_tolerant_merge_task(
-            current.file_type,
-            current.hls_output_mode,
-            current.total_segments,
-            current.completed_segment_indices.len(),
-            current.failed_segment_indices.len(),
-            has_running_token
-                || !matches!(
-                    current.status,
-                    DownloadStatus::Paused | DownloadStatus::Failed(_)
-                ),
-            settings.merge_failed_segment_limit,
-        )?;
-
-        current.status = DownloadStatus::Merging;
-        current.speed_bytes_per_sec = 0;
-        current.file_path = None;
-        current.touch();
-        current.clone()
-    };
-
-    let ffmpeg_path = if ffmpeg_enabled {
-        crate::ffmpeg::resolve_ffmpeg_path(&app_handle).await
-    } else {
-        None
-    };
-
-    persistence::save_task(&app_handle, &merging_task).await?;
-    let _ = app_handle.emit("download-progress", task_to_progress(&merging_task));
-
-    let merge_result = downloader::merge_single_stream_with_failed_segments(
-        &merging_task,
-        convert_to_mp4,
-        ffmpeg_enabled,
-        ffmpeg_path.as_deref(),
-    )
-    .await;
-
-    let updated_task = {
-        let mut downloads = state.downloads.lock().await;
-        let current = downloads
-            .get_mut(&id)
-            .ok_or_else(|| AppError::InvalidInput(format!("Download {} not found", id)))?;
-        let completed_at = Utc::now();
-        current.speed_bytes_per_sec = 0;
-        current.updated_at = Some(completed_at);
-
-        match &merge_result {
-            Ok(final_path) => {
-                current.status = DownloadStatus::Completed;
-                current.completed_at = Some(completed_at);
-                current.file_path = Some(final_path.to_string_lossy().to_string());
-                if let Ok(metadata) = final_path.metadata() {
-                    if metadata.is_file() {
-                        current.total_bytes = metadata.len();
-                    }
-                }
-            }
-            Err(error) => {
-                current.status = DownloadStatus::Failed(error.to_string());
-            }
-        }
-
-        current.clone()
-    };
-
-    persistence::save_task(&app_handle, &updated_task).await?;
-    let _ = app_handle.emit("download-progress", task_to_progress(&updated_task));
-    if merge_result.is_ok() {
-        maybe_cleanup_completed_temp_dir(&app_handle, &state, &id).await;
-    }
-    if should_remove_download_from_runtime(&updated_task.status) {
-        state.downloads.lock().await.remove(&id);
-    }
-
-    match merge_result {
-        Ok(_) => Ok(persistence::task_to_summary(&updated_task)),
-        Err(error) => Err(error),
-    }
-}
-
-fn should_remove_download_from_runtime(status: &DownloadStatus) -> bool {
-    matches!(
-        status,
-        DownloadStatus::Completed | DownloadStatus::Failed(_) | DownloadStatus::Cancelled
-    )
-}
-
-#[tauri::command]
 pub async fn cancel_download(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -3099,7 +2982,7 @@ fn optional_track_playlist_path(
     Ok(Some(playlist_path))
 }
 
-fn task_to_progress(task: &DownloadTask) -> DownloadProgressEvent {
+pub(crate) fn task_to_progress(task: &DownloadTask) -> DownloadProgressEvent {
     DownloadProgressEvent {
         direct_info: task.direct_info.clone(),
         id: task.id.clone(),
@@ -3121,7 +3004,7 @@ fn task_to_progress(task: &DownloadTask) -> DownloadProgressEvent {
     }
 }
 
-async fn get_or_load_task(
+pub(crate) async fn get_or_load_task(
     app_handle: &AppHandle,
     state: &State<'_, AppState>,
     id: &str,
@@ -3300,7 +3183,11 @@ async fn start_mp4_download_worker(
                     }
                     Err(AppError::Cancelled) => {
                         task.speed_bytes_per_sec = 0;
-                        if task.status == DownloadStatus::Paused
+                        if task.status == DownloadStatus::Merging {
+                            task.touch();
+                            progress_to_emit = Some(task_to_progress(task));
+                            should_save = true;
+                        } else if task.status == DownloadStatus::Paused
                             || task.status == DownloadStatus::Cancelled
                         {
                             task.touch();
@@ -3470,7 +3357,11 @@ async fn start_download_worker(
                     }
                     Err(AppError::Cancelled) => {
                         task.speed_bytes_per_sec = 0;
-                        if task.status == DownloadStatus::Paused
+                        if task.status == DownloadStatus::Merging {
+                            task.touch();
+                            progress_to_emit = Some(task_to_progress(task));
+                            should_save = true;
+                        } else if task.status == DownloadStatus::Paused
                             || task.status == DownloadStatus::Cancelled
                         {
                             task.touch();
@@ -3633,7 +3524,11 @@ async fn start_hls_bundle_download_worker(
                     }
                     Err(AppError::Cancelled) => {
                         task.speed_bytes_per_sec = 0;
-                        if task.status == DownloadStatus::Paused
+                        if task.status == DownloadStatus::Merging {
+                            task.touch();
+                            progress_to_emit = Some(task_to_progress(task));
+                            should_save = true;
+                        } else if task.status == DownloadStatus::Paused
                             || task.status == DownloadStatus::Cancelled
                         {
                             task.touch();
@@ -5186,19 +5081,6 @@ pub async fn close_live_playback_session(
 mod tests {
     use super::*;
     use std::fs;
-
-    #[test]
-    fn terminal_downloads_are_removed_from_runtime_collection() {
-        assert!(should_remove_download_from_runtime(
-            &DownloadStatus::Completed
-        ));
-        assert!(should_remove_download_from_runtime(&DownloadStatus::Failed(
-            "merge failed".to_string()
-        )));
-        assert!(!should_remove_download_from_runtime(
-            &DownloadStatus::Merging
-        ));
-    }
 
     #[tokio::test]
     async fn rebuilding_http_client_preserves_https_certificate_setting_and_user_agent() {

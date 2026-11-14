@@ -104,6 +104,15 @@ function createHarness(hookName) {
           .map((task) => task.id);
       },
     },
+    "../extensions/develop/useDownloadBulkActions": {
+      useDownloadBulkActions() {
+        return {
+          pauseAll: async () => {},
+          resumeAll: async () => {},
+          bulkAction: null,
+        };
+      },
+    },
     antd: { message: { error: (value) => errors.push(value), success() {} }, Modal: {} },
     "@tauri-apps/api/event": { listen: async (_, callback) => {
       listener = callback;

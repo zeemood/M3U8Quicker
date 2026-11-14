@@ -2,6 +2,7 @@ mod commands;
 mod batch_bridge;
 mod downloader;
 mod error;
+mod extensions;
 mod ffmpeg;
 mod fix_path;
 mod i18n;
@@ -460,7 +461,7 @@ pub fn run() {
             commands::check_resume_download,
             commands::resume_download,
             commands::retry_failed_segments,
-            commands::merge_download_with_failed_segments,
+            extensions::develop::tolerant_merge_command::merge_download_with_failed_segments,
             commands::cancel_download,
             commands::get_download_counts,
             commands::get_downloads_page,

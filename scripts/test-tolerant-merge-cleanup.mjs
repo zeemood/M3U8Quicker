@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-const source = fs.readFileSync("src-tauri/src/commands.rs", "utf8");
+const source = fs.readFileSync(
+  "src-tauri/src/extensions/develop/tolerant_merge_command.rs",
+  "utf8"
+);
 
 test("successful tolerant merge uses the normal completed temp cleanup", () => {
   const commandStart = source.indexOf(

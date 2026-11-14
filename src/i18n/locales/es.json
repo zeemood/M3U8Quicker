@@ -130,7 +130,7 @@
   "resumeDownload": "Reanudar descarga",
   "tolerantMerge": "Combinar segmentos disponibles",
   "tolerantMergeHint": "Combina los segmentos HLS descargados. Los segmentos fallidos ausentes pueden provocar pequeños saltos de reproducción.",
-  "tolerantMergeConfirmation": "¿Combinar ahora los segmentos descargados? Se omitirán los segmentos fallidos.",
+  "tolerantMergeConfirmation": "¿Detener la descarga actual y combinar ahora los segmentos descargados? Se omitirán los segmentos pendientes y fallidos.",
   "tolerantMergeCompleted": "Segmentos disponibles combinados.",
   "failedToMergeFailedSegments": "No se pudieron combinar los segmentos disponibles: {{value0}}",
   "mergeFailedSegmentLimit": "Límite de segmentos fallidos para combinación tolerante",

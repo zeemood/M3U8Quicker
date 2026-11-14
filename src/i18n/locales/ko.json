@@ -130,7 +130,7 @@
   "resumeDownload": "다운로드 재개",
   "tolerantMerge": "가능한 조각 병합",
   "tolerantMergeHint": "다운로드한 HLS 조각을 병합합니다. 실패한 조각이 빠지면 재생이 짧게 끊길 수 있습니다.",
-  "tolerantMergeConfirmation": "지금 다운로드한 조각을 병합하시겠습니까? 실패한 조각은 건너뜁니다.",
+  "tolerantMergeConfirmation": "현재 다운로드를 중지하고 다운로드한 조각을 지금 병합하시겠습니까? 미완료 및 실패한 조각은 건너뜁니다.",
   "tolerantMergeCompleted": "가능한 조각을 병합했습니다.",
   "failedToMergeFailedSegments": "가능한 조각 병합 실패: {{value0}}",
   "mergeFailedSegmentLimit": "허용 병합 실패 조각 한도",

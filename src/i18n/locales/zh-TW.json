@@ -130,7 +130,7 @@
   "resumeDownload": "繼續下載",
   "tolerantMerge": "容錯合併",
   "tolerantMergeHint": "合併已下載的 HLS 分片。缺失的失敗分片可能導致播放短暫跳變。",
-  "tolerantMergeConfirmation": "是否立即合併已下載分片？失敗分片將被略過。",
+  "tolerantMergeConfirmation": "是否立即停止目前下載並合併已下載分片？未完成和失敗分片將被略過。",
   "tolerantMergeCompleted": "已合併現有可用分片",
   "failedToMergeFailedSegments": "合併可用分片失敗：{{value0}}",
   "mergeFailedSegmentLimit": "容錯合併失敗分片上限",

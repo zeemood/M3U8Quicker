@@ -130,7 +130,7 @@
   "resumeDownload": "Retomar download",
   "tolerantMerge": "Mesclar segmentos disponíveis",
   "tolerantMergeHint": "Mescla os segmentos HLS baixados. Segmentos com falha ausentes podem causar pequenos saltos na reprodução.",
-  "tolerantMergeConfirmation": "Mesclar agora os segmentos baixados? Segmentos com falha serão ignorados.",
+  "tolerantMergeConfirmation": "Parar o download atual e mesclar agora os segmentos baixados? Segmentos pendentes e com falha serão ignorados.",
   "tolerantMergeCompleted": "Segmentos disponíveis mesclados.",
   "failedToMergeFailedSegments": "Falha ao mesclar os segmentos disponíveis: {{value0}}",
   "mergeFailedSegmentLimit": "Limite de segmentos com falha para mesclagem tolerante",

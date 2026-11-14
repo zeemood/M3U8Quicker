@@ -32,23 +32,31 @@ test("tolerant merge is available for paused or failed single-stream HLS", () =>
   assert.equal(canMergeWithFailedSegments(task({ status: { Failed: "error" } }), 30), true);
 });
 
+test("tolerant merge can stop an active download and use existing segments", () => {
+  assert.equal(canMergeWithFailedSegments(task({ status: "Downloading" }), 30), true);
+});
+
 test("tolerant merge respects the configured failed segment limit", () => {
   assert.equal(canMergeWithFailedSegments(task({ failed_segment_count: 31 }), 30), false);
   assert.equal(canMergeWithFailedSegments(task(), 0), false);
   assert.equal(canMergeWithFailedSegments(task(), 3), true);
 });
 
-test("tolerant merge requires all segments to finish processing", () => {
+test("tolerant merge allows partially downloaded tasks with existing segments", () => {
   assert.equal(
     canMergeWithFailedSegments(
       task({ completed_segments: 90, failed_segment_count: 3 }),
       30
     ),
+    true
+  );
+  assert.equal(
+    canMergeWithFailedSegments(task({ completed_segments: 0 }), 30),
     false
   );
 });
 
-test("tolerant merge excludes live, DASH, multi-track and running tasks", () => {
+test("tolerant merge excludes live, DASH, multi-track and unsupported statuses", () => {
   assert.equal(canMergeWithFailedSegments(task({ is_live: true }), 30), false);
   assert.equal(canMergeWithFailedSegments(task({ file_type: "dash" }), 30), false);
   assert.equal(
@@ -58,7 +66,7 @@ test("tolerant merge excludes live, DASH, multi-track and running tasks", () => 
     ),
     false
   );
-  for (const status of ["Downloading", "Pending", "Merging", "Converting", "Cancelled", "Completed"]) {
+  for (const status of ["Pending", "Merging", "Converting", "Cancelled", "Completed"]) {
     assert.equal(canMergeWithFailedSegments(task({ status }), 30), false, status);
   }
 });

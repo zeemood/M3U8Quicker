@@ -15,15 +15,11 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  applyFilenameCleanupRules,
-  cleanDownloadUrlAfterFilenameCleanup,
   deriveFilenameFromUrl,
   DIRECT_FILE_TYPES,
   getFileTypeLabel,
   inferDirectFileTypeFromUrl,
   isDirectFileType,
-  resolveFilenameCleanupSourceUrl,
-  resolveInitialDownloadFilename,
   type CreateDownloadParams,
   type DownloadMode,
   type FileType,
@@ -31,6 +27,12 @@ import {
   type HlsTrackSelection,
   type InspectHlsTracksResult,
 } from "../types";
+import {
+  applyFilenameCleanupRules,
+  cleanDownloadUrlAfterFilenameCleanup,
+  resolveFilenameCleanupSourceUrl,
+  resolveInitialDownloadFilename,
+} from "../extensions/develop/filenameCleanup";
 import type { FilenameCleanupRule } from "../types/settings";
 
 interface NewDownloadModalProps {

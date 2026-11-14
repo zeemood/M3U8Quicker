@@ -3,17 +3,34 @@ import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 
-const source = fs.readFileSync("src/types/index.ts", "utf8");
 const asModule = (value) =>
   `data:text/javascript;base64,${Buffer.from(value).toString("base64")}`;
-const transpiled = ts.transpileModule(source, {
+const typesSource = fs.readFileSync("src/types/index.ts", "utf8");
+const typesModule = ts.transpileModule(typesSource, {
   compilerOptions: {
     module: ts.ModuleKind.ESNext,
     target: ts.ScriptTarget.ES2023,
     verbatimModuleSyntax: true,
   },
 }).outputText;
-const { resolveInitialDownloadFilename } = await import(asModule(transpiled));
+const typesModuleUrl = asModule(typesModule);
+const extensionSource = fs.readFileSync(
+  "src/extensions/develop/filenameCleanup.ts",
+  "utf8"
+);
+const extensionModule = ts.transpileModule(extensionSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2023,
+    verbatimModuleSyntax: true,
+  },
+}).outputText.replace(
+  /from ['"]\.\.\/\.\.\/types['"]/g,
+  `from ${JSON.stringify(typesModuleUrl)}`
+);
+const { resolveInitialDownloadFilename } = await import(
+  asModule(extensionModule)
+);
 
 test("extension-provided title wins over URL-derived filename", () => {
   assert.equal(

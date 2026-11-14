@@ -20,14 +20,16 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  applyFilenameCleanupRules,
-  cleanDownloadUrlAfterFilenameCleanup,
   deriveFilenameFromUrl,
-  resolveFilenameCleanupSourceUrl,
   type FileType,
   type CreateLiveRecordParams,
   type LiveProtocol,
 } from "../types";
+import {
+  applyFilenameCleanupRules,
+  cleanDownloadUrlAfterFilenameCleanup,
+  resolveFilenameCleanupSourceUrl,
+} from "../extensions/develop/filenameCleanup";
 import type { FilenameCleanupRule } from "../types/settings";
 
 interface NewLiveRecordModalProps {

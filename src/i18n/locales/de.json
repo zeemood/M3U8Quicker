@@ -130,7 +130,7 @@
   "resumeDownload": "Download fortsetzen",
   "tolerantMerge": "Verfügbare Segmente zusammenführen",
   "tolerantMergeHint": "Führt heruntergeladene HLS-Segmente zusammen. Fehlende fehlgeschlagene Segmente können kurze Wiedergabesprünge verursachen.",
-  "tolerantMergeConfirmation": "Heruntergeladene Segmente jetzt zusammenführen? Fehlgeschlagene Segmente werden übersprungen.",
+  "tolerantMergeConfirmation": "Aktuellen Download stoppen und heruntergeladene Segmente jetzt zusammenführen? Ausstehende und fehlgeschlagene Segmente werden übersprungen.",
   "tolerantMergeCompleted": "Verfügbare Segmente wurden zusammengeführt.",
   "failedToMergeFailedSegments": "Verfügbare Segmente konnten nicht zusammengeführt werden: {{value0}}",
   "mergeFailedSegmentLimit": "Grenze für fehlgeschlagene Segmente beim toleranten Zusammenführen",

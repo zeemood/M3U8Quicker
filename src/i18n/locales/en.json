@@ -130,7 +130,7 @@
   "resumeDownload": "Resume download",
   "tolerantMerge": "Merge available segments",
   "tolerantMergeHint": "Merge downloaded HLS segments. Missing failed segments may cause short gaps in playback.",
-  "tolerantMergeConfirmation": "Merge the downloaded segments now? Failed segments will be skipped.",
+  "tolerantMergeConfirmation": "Stop the current download and merge the downloaded segments now? Pending and failed segments will be skipped.",
   "tolerantMergeCompleted": "Available segments merged successfully.",
   "failedToMergeFailedSegments": "Failed to merge available segments: {{value0}}",
   "mergeFailedSegmentLimit": "Tolerant merge failed-segment limit",

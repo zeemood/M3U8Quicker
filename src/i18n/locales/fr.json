@@ -130,7 +130,7 @@
   "resumeDownload": "Reprendre le téléchargement",
   "tolerantMerge": "Fusionner les segments disponibles",
   "tolerantMergeHint": "Fusionne les segments HLS téléchargés. Les segments en échec manquants peuvent provoquer de brefs sauts de lecture.",
-  "tolerantMergeConfirmation": "Fusionner maintenant les segments téléchargés ? Les segments en échec seront ignorés.",
+  "tolerantMergeConfirmation": "Arrêter le téléchargement actuel et fusionner maintenant les segments téléchargés ? Les segments en attente et en échec seront ignorés.",
   "tolerantMergeCompleted": "Segments disponibles fusionnés.",
   "failedToMergeFailedSegments": "Impossible de fusionner les segments disponibles : {{value0}}",
   "mergeFailedSegmentLimit": "Limite de segments en échec pour la fusion tolérante",

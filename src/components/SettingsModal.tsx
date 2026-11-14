@@ -87,7 +87,7 @@ import { FilenameCleanupRulesEditor } from "./FilenameCleanupRulesEditor";
 import {
   normalizeFilenameCleanupSite,
   validateFilenameCleanupRule,
-} from "../types";
+} from "../extensions/develop/filenameCleanup";
 
 const MIN_DOWNLOAD_CONCURRENCY = 1;
 const MAX_DOWNLOAD_CONCURRENCY = 10000;

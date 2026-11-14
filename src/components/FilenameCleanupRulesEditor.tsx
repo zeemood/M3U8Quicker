@@ -27,12 +27,12 @@ import {
 } from "@ant-design/icons";
 import {
   applyFilenameCleanupRulesWithMatch,
-  deriveFilenameFromUrl,
   getFilenameCleanupRegexCaptureGroups,
   normalizeFilenameCleanupSite,
   removeTitleQueryParameter,
   validateFilenameCleanupRule,
-} from "../types";
+} from "../extensions/develop/filenameCleanup";
+import { deriveFilenameFromUrl } from "../types";
 import type {
   FilenameCleanupMatchType,
   FilenameCleanupRule,

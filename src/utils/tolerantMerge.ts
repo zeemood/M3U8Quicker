@@ -20,6 +20,7 @@ export function canMergeWithFailedSegments(
     task.file_type !== "hls" ||
     task.hls_output_mode !== "single_stream" ||
     task.total_segments <= 0 ||
+    task.completed_segments <= 0 ||
     task.failed_segment_count <= 0 ||
     failedSegmentLimit <= 0 ||
     task.failed_segment_count > failedSegmentLimit
@@ -27,11 +28,10 @@ export function canMergeWithFailedSegments(
     return false;
   }
 
-  const finishedProcessing =
-    task.completed_segments + task.failed_segment_count >= task.total_segments;
+  const canUseExistingSegments = task.status === "Downloading";
   const isPaused = task.status === "Paused";
   const isFailed =
     typeof task.status === "object" && "Failed" in task.status;
 
-  return finishedProcessing && (isPaused || isFailed);
+  return canUseExistingSegments || isPaused || isFailed;
 }

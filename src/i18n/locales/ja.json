@@ -130,7 +130,7 @@
   "resumeDownload": "ダウンロードを再開",
   "tolerantMerge": "利用可能なセグメントを結合",
   "tolerantMergeHint": "ダウンロード済みの HLS セグメントを結合します。失敗したセグメントが欠けると再生が短く飛ぶ場合があります。",
-  "tolerantMergeConfirmation": "ダウンロード済みのセグメントを今すぐ結合しますか？失敗したセグメントはスキップされます。",
+  "tolerantMergeConfirmation": "現在のダウンロードを停止し、ダウンロード済みのセグメントを今すぐ結合しますか？未完了および失敗したセグメントはスキップされます。",
   "tolerantMergeCompleted": "利用可能なセグメントを結合しました",
   "failedToMergeFailedSegments": "利用可能なセグメントの結合に失敗しました: {{value0}}",
   "mergeFailedSegmentLimit": "結合時の失敗セグメント上限",

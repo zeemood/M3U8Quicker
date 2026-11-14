@@ -29,16 +29,18 @@ import {
   setDefaultDownloadDir,
 } from "../services/api";
 import {
-  applyFilenameCleanupRules,
-  cleanDownloadUrlAfterFilenameCleanup,
   deriveFilenameFromUrl,
   inferDirectFileTypeFromUrl,
-  resolveFilenameCleanupSourceUrl,
   type CreateDownloadParams,
   type DownloadMode,
   type DownloadSourceKind,
   type FileType,
 } from "../types";
+import {
+  applyFilenameCleanupRules,
+  cleanDownloadUrlAfterFilenameCleanup,
+  resolveFilenameCleanupSourceUrl,
+} from "../extensions/develop/filenameCleanup";
 import type { FilenameCleanupRule } from "../types/settings";
 
 const INLINE_DASH_JSON_PLACEHOLDER_URL = "inline-dash-json";
