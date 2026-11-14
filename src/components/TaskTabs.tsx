@@ -10,6 +10,7 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useState,
 } from "react";
 import { t, useTranslation } from "../i18n";
 import {
@@ -26,6 +27,7 @@ import type {
 } from "../types";
 import { liveRecordToDownloadSummary } from "../types";
 import { DownloadList } from "./DownloadList";
+import { HistorySearchBar } from "./HistorySearchBar";
 
 type DownloadAction =
   | "pause"
@@ -80,6 +82,7 @@ export interface TaskTabsProps {
   historyPageSize: number;
   onPlayDownload: (task: DownloadTaskSummary) => void;
   onPlayLive: (task: DownloadTaskSummary) => void;
+  onPreviewDownload: (task: DownloadTaskSummary) => void;
   onAnalyze: (filePath: string) => void;
   onRequestStopLive: (record: LiveRecordSummary) => void;
 }
@@ -90,12 +93,14 @@ export const TaskTabs = memo(
       historyPageSize,
       onPlayDownload,
       onPlayLive,
+      onPreviewDownload,
       onAnalyze,
       onRequestStopLive,
     },
     ref
   ) {
     const { i18n } = useTranslation();
+    const [activeTab, setActiveTab] = useState("downloading");
     const {
       counts,
       downloading,
@@ -106,6 +111,8 @@ export const TaskTabs = memo(
       completedPage,
       completedPageSize,
       completedTotal,
+      historySearch,
+      searchHistory,
       addDownload,
       addDownloadsBatch,
       pause,
@@ -133,6 +140,8 @@ export const TaskTabs = memo(
       recordedPage,
       recordedPageSize,
       recordedTotal,
+      historySearch: liveHistorySearch,
+      searchHistory: searchLiveHistory,
       addLiveRecord,
       pause: pauseLive,
       resume: resumeLive,
@@ -146,6 +155,8 @@ export const TaskTabs = memo(
       loadingHistory: loadingLiveHistory,
     } = useLiveRecords(historyPageSize);
     const language = i18n.language;
+    const hasHistorySearch = Boolean(historySearch.trim());
+    const hasLiveHistorySearch = Boolean(liveHistorySearch.trim());
 
     useImperativeHandle(
       ref,
@@ -369,10 +380,16 @@ export const TaskTabs = memo(
             onRemove={remove}
             onPlay={onPlayDownload}
             loading={loadingHistory}
+            emptyText={hasHistorySearch ? t("noMatchingDownloads") : undefined}
+            onPreview={onPreviewDownload}
             onAnalyze={onAnalyze}
             showActions={HISTORY_DOWNLOAD_ACTIONS}
             showSpeed={false}
-            actionsHeaderExtra={downloadHistoryHeader}
+            actionsHeaderExtra={
+              !hasHistorySearch && !loadingHistory
+                ? downloadHistoryHeader
+                : undefined
+            }
           />
         ),
       },
@@ -419,10 +436,16 @@ export const TaskTabs = memo(
             onRemove={removeLive}
             onPlay={onPlayLive}
             loading={loadingLiveHistory}
+            emptyText={hasLiveHistorySearch ? t("noMatchingDownloads") : undefined}
+            onPreview={onPreviewDownload}
             showActions={HISTORY_LIVE_ACTIONS}
             showSpeed={false}
             statusTagOverride={liveStatusTagOverride}
-            actionsHeaderExtra={liveHistoryHeader}
+            actionsHeaderExtra={
+              !hasLiveHistorySearch && !loadingLiveHistory
+                ? liveHistoryHeader
+                : undefined
+            }
           />
         ),
       },
@@ -431,8 +454,26 @@ export const TaskTabs = memo(
     return (
       <Tabs
         items={tabItems}
-        defaultActiveKey="downloading"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         destroyOnHidden
+        tabBarExtraContent={
+          activeTab === "completed" ? (
+            <HistorySearchBar
+              value={historySearch}
+              onChange={searchHistory}
+              loading={loadingHistory}
+              total={completedTotal}
+            />
+          ) : activeTab === "live-recorded" ? (
+            <HistorySearchBar
+              value={liveHistorySearch}
+              onChange={searchLiveHistory}
+              loading={loadingLiveHistory}
+              total={recordedTotal}
+            />
+          ) : null
+        }
       />
     );
   })

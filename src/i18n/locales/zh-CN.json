@@ -1,4 +1,13 @@
 {
+  "networkLink": "网络链接",
+  "localFile": "本地文件",
+  "failedToLoadRecordingHistory": "加载录制历史失败：{{value0}}",
+  "searchDownloadFilename": "搜索文件名",
+  "searchByFilename": "按文件名搜索",
+  "matchingDownloadCount": "找到 {{value0}} 条匹配记录",
+  "noMatchingDownloads": "未找到匹配记录",
+  "searchingDownloads": "正在搜索…",
+  "failedToLoadDownloadHistory": "加载下载历史失败：{{value0}}",
   "installChromeExtension": "安装 Chrome 扩展",
   "openChrome": "打开Chrome",
   "installMicrosoftEdgeExtension": "安装 Microsoft Edge 扩展",
@@ -657,5 +666,12 @@
   "openShutdownTool": "打开关机工具",
   "failedToRequestSystemShutdown": "请求系统关机失败：{{value0}}",
   "systemShutdownRequested": "已发送系统关机请求",
-  "segmentRangeSummary": "显示第 {{value0}}–{{value1}} 个分片，共 {{value2}} 个"
+  "segmentRangeSummary": "显示第 {{value0}}–{{value1}} 个分片，共 {{value2}} 个",
+  "directParallelDownload": "并发分片下载",
+  "directParallelDownloadHint": "为本批次的直链视频启用分片并发下载，需要服务器支持 Range 请求。",
+  "directSingleFallback": "单连接下载（未启用分片）",
+  "directCheckingRanges": "正在检测分片支持",
+  "directBuffering": "正在缓冲，等待所需分片下载…",
+  "directRestartRequired": "需要重新下载",
+  "directRestartExplanation": "远端文件或分片支持已变化，或无法确认文件版本。重新下载将清除已保存的 {{value0}} 分块数据并从头开始。"
 }

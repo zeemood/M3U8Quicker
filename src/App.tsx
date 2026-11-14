@@ -34,6 +34,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ToolsModal, type ToolAction } from "./components/ToolsModal";
 import {
   installChromiumExtension,
+  receiveBrowserBatch,
   openChromiumExtensionsPage,
   installFirefoxExtension,
   openFirefoxAddonsPage,
@@ -42,6 +43,7 @@ import {
   openLivePlaybackSession,
   createPreviewSession,
   closePreviewSession,
+  showPreviewDialog,
   getAppSettings,
   setProxySettings,
   getFfmpegStatus,
@@ -61,6 +63,7 @@ import type {
 import {
   canOpenInProgressPlayback,
   isDirectFileType,
+  normalizeDownloadFilename,
   parseFileType,
 } from "./types";
 import type { ThemeMode } from "./types/settings";
@@ -78,6 +81,7 @@ interface DownloadDraft {
   url: string;
   extraHeaders?: string;
   fileType?: import("./types").FileType;
+  filename?: string;
   nonce: number;
 }
 
@@ -85,6 +89,7 @@ interface BatchDownloadDraft {
   rawInput: string;
   extraHeaders?: string;
   fileTypes?: Array<import("./types").FileType | undefined>;
+  filenames?: Array<string | undefined>;
   nonce: number;
 }
 
@@ -325,7 +330,7 @@ function App({
 
       const previewDraft = parsePreviewDraft(deepLink);
       if (previewDraft) {
-        void openPreviewWindowFromDeepLink(
+        void openPreviewWindow(
           previewDraft.url,
           previewDraft.extraHeaders,
           previewDraft.title,
@@ -334,6 +339,25 @@ function App({
             setSettingsOpen(true);
           }
         );
+        return;
+      }
+
+      const transfer = parseBatchTransferLink(deepLink);
+      if (transfer) {
+        void bringMainWindowToFront();
+        void receiveBrowserBatch(transfer.id, transfer.secret).then((payload) => {
+          if (!payload) return; // A retry of an already imported batch.
+          setBatchDownloadDraft({
+            rawInput: payload.items.map((item) => item.url).join("\n"),
+            extraHeaders: payload.extra_headers || undefined,
+            fileTypes: payload.items.map((item) => parseFileType(item.file_type)),
+            filenames: payload.items.map((item) => normalizeDownloadFilename(item.title) || undefined),
+            nonce: Date.now(),
+          });
+          setBatchDownloadModalOpen(true);
+        }).catch((error: unknown) => {
+          message.error(t("failedToCreateBatchDownloads", { value0: error instanceof Error ? error.message : String(error) }));
+        });
         return;
       }
 
@@ -472,6 +496,21 @@ function App({
     setToolInputPath(filePath);
     setActiveTool("analyze-media");
     setToolModalOpen(true);
+  }, []);
+  const handlePreviewDownload = useCallback((task: DownloadTaskSummary) => {
+    if (!task.file_path) {
+      return;
+    }
+    void openPreviewWindow(
+      "",
+      undefined,
+      task.filename,
+      () => {
+        setSettingsInitialTab("ffmpeg");
+        setSettingsOpen(true);
+      },
+      task.file_path
+    );
   }, []);
 
   const performStopLive = async (convertToMp4Flag: boolean) => {
@@ -762,6 +801,7 @@ function App({
           historyPageSize={historyPageSize}
           onPlayDownload={handleOpenPlaybackWindow}
           onPlayLive={handleOpenLivePlaybackWindow}
+          onPreviewDownload={handlePreviewDownload}
           onAnalyze={handleAnalyzeVideo}
           onRequestStopLive={requestStopLive}
         />
@@ -771,6 +811,7 @@ function App({
         initialUrl={downloadDraft?.url}
         initialExtraHeaders={downloadDraft?.extraHeaders}
         initialFileType={downloadDraft?.fileType}
+        initialFilename={downloadDraft?.filename}
         resetKey={downloadDraft?.nonce ?? 0}
         onClose={() => setModalOpen(false)}
         onOpenFfmpegSettings={() => {
@@ -821,6 +862,7 @@ function App({
         initialRawInput={batchDownloadDraft?.rawInput}
         initialExtraHeaders={batchDownloadDraft?.extraHeaders}
         initialFileTypes={batchDownloadDraft?.fileTypes}
+        initialFilenames={batchDownloadDraft?.filenames}
         resetKey={batchDownloadDraft?.nonce ?? 0}
         onClose={() => {
           setBatchDownloadModalOpen(false);
@@ -1405,7 +1447,9 @@ function parseDownloadDraft(deepLink: string): Omit<DownloadDraft, "nonce"> | nu
     const extraHeaders = parsed.searchParams.get("extra_headers")?.trim() || undefined;
     const rawFileType = parsed.searchParams.get("file_type");
     const fileType = parseFileType(rawFileType);
-    return { url, extraHeaders, fileType };
+    const title = parsed.searchParams.get("title");
+    const filename = title ? normalizeDownloadFilename(title) || undefined : undefined;
+    return { url, extraHeaders, fileType, filename };
   } catch (error) {
     console.debug("[m3u8quicker] failed to parse deep link", deepLink, error);
     return null;
@@ -1414,7 +1458,7 @@ function parseDownloadDraft(deepLink: string): Omit<DownloadDraft, "nonce"> | nu
 
 function parseNewLiveRecordDraft(
   deepLink: string
-): { url: string; extraHeaders?: string } | null {
+): { url: string; extraHeaders?: string; filename?: string } | null {
   try {
     const parsed = new URL(deepLink);
     const action = (parsed.hostname || parsed.pathname.replace(/^\/+/, "")).toLowerCase();
@@ -1428,7 +1472,9 @@ function parseNewLiveRecordDraft(
     }
 
     const extraHeaders = parsed.searchParams.get("extra_headers")?.trim() || undefined;
-    return { url, extraHeaders };
+    const title = parsed.searchParams.get("title");
+    const filename = title ? normalizeDownloadFilename(title) || undefined : undefined;
+    return { url, extraHeaders, filename };
   } catch (error) {
     console.debug("[m3u8quicker] failed to parse live record deep link", deepLink, error);
     return null;
@@ -1474,35 +1520,31 @@ async function ensureFfmpegReadyForPreview(
     // fall through to prompt
   }
 
-  return await new Promise<boolean>((resolve) => {
-    Modal.confirm({
-      title: t("ffmpegRequiredForPreviews"),
-      content: (
-        <Typography.Paragraph style={{ marginBottom: 0 }}>
-          {t("videoPreviewsUseFfmpegToExtractFramesEnableAndConfigure")}</Typography.Paragraph>
-      ),
-      okText: t("goToSettings"),
-      cancelText: t("cancel"),
-      onOk: () => {
-        onOpenFfmpegSettings();
-        resolve(false);
-      },
-      onCancel: () => resolve(false),
-    });
-  });
+  // 深链预览的主窗口可能隐藏，使用原生对话框让提示仍然可见。
+  const openSettings = await showPreviewDialog(
+    t("videoPreviewsUseFfmpegToExtractFramesEnableAndConfigure"),
+    t("ffmpegRequiredForPreviews"),
+    [t("goToSettings"), t("cancel")]
+  );
+  if (openSettings) {
+    await bringMainWindowToFront();
+    onOpenFfmpegSettings();
+  }
+  return false;
 }
 
-async function openPreviewWindowFromDeepLink(
+async function openPreviewWindow(
   url: string,
   extraHeaders: string | undefined,
   title: string | undefined,
-  onOpenFfmpegSettings: () => void
+  onOpenFfmpegSettings: () => void,
+  localPath?: string
 ): Promise<void> {
-  if (!(await ensureFfmpegReadyForPreview(onOpenFfmpegSettings))) {
-    return;
-  }
   let token: string | null = null;
   try {
+    if (!(await ensureFfmpegReadyForPreview(onOpenFfmpegSettings))) {
+      return;
+    }
     const isInlineDashJson = url.trim().startsWith("{");
     const sessionUrl = isInlineDashJson ? "inline-dash-json" : url;
     const sourceKind = isInlineDashJson ? "inline_dash_json" : undefined;
@@ -1511,7 +1553,8 @@ async function openPreviewWindowFromDeepLink(
       sessionUrl,
       extraHeaders,
       sourceKind,
-      sourceText
+      sourceText,
+      localPath
     );
     token = session.token;
     const previewParams = new URLSearchParams({
@@ -1535,21 +1578,38 @@ async function openPreviewWindowFromDeepLink(
     });
 
     previewWindow.once("tauri://created", () => {
-      void previewWindow.setFocus();
+      // 主窗口可能仍被浏览器遮挡，直接显示并激活新建的预览窗口。
+      void (async () => {
+        await previewWindow.show();
+        if (await previewWindow.isMinimized()) {
+          await previewWindow.unminimize();
+        }
+        await previewWindow.setFocus();
+      })().catch((error) => {
+        console.error("Failed to bring preview window to front", error);
+      });
     });
     previewWindow.once("tauri://error", (event) => {
       console.error("Failed to create preview window", event);
       if (token) {
         void closePreviewSession(token);
       }
-      message.error(t("failedToOpenPreviewWindow"));
+      void showPreviewError(t("failedToOpenPreviewWindow"));
     });
   } catch (error) {
     if (token) {
       void closePreviewSession(token);
     }
     console.error("[m3u8quicker] failed to open preview window", error);
-    message.error(t("failedToGeneratePreview", { value0: formatPreviewError(error) }));
+    await showPreviewError(t("failedToGeneratePreview", { value0: formatPreviewError(error) }));
+  }
+}
+
+async function showPreviewError(error: string): Promise<void> {
+  try {
+    await showPreviewDialog(error, t("previewFailed"));
+  } catch (dialogError) {
+    console.error("[m3u8quicker] failed to show preview error", dialogError);
   }
 }
 
@@ -1611,6 +1671,19 @@ function formatPreviewError(error: unknown): string {
   return String(error);
 }
 
+function parseBatchTransferLink(deepLink: string): { id: string; secret: string } | null {
+  try {
+    const parsed = new URL(deepLink);
+    const action = (parsed.hostname || parsed.pathname.replace(/^\/+/, "")).toLowerCase();
+    if (parsed.protocol !== "m3u8quicker:" || action !== "batch-transfer") return null;
+    const id = parsed.searchParams.get("id") || "";
+    const secret = parsed.searchParams.get("secret") || "";
+    return /^[a-f0-9]{32}$/.test(id) && /^[a-f0-9]{64}$/.test(secret) ? { id, secret } : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseBatchDownloadDraft(
   deepLink: string
 ): Omit<BatchDownloadDraft, "nonce"> | null {
@@ -1631,7 +1704,21 @@ function parseBatchDownloadDraft(
     const fileTypes = rawFileTypes
       ? rawFileTypes.split(/\r?\n/).map((value) => parseFileType(value))
       : undefined;
-    return { rawInput, extraHeaders, fileTypes };
+    let filenames: Array<string | undefined> | undefined;
+    const rawTitles = parsed.searchParams.get("titles");
+    if (rawTitles) {
+      try {
+        const titles: unknown = JSON.parse(rawTitles);
+        if (Array.isArray(titles)) {
+          filenames = titles.map((title) =>
+            typeof title === "string" ? normalizeDownloadFilename(title) || undefined : undefined
+          );
+        }
+      } catch {
+        // Invalid optional titles must not prevent the URLs from opening.
+      }
+    }
+    return { rawInput, extraHeaders, fileTypes, filenames };
   } catch (error) {
     console.debug("[m3u8quicker] failed to parse batch deep link", deepLink, error);
     return null;

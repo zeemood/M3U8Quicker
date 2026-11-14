@@ -49,11 +49,11 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function confirmRestartMp4Download(downloadedBytes: number): Promise<boolean> {
+function confirmRestartMp4Download(downloadedBytes: number, parallel = false): Promise<boolean> {
   return new Promise((resolve) => {
     Modal.confirm({
-      title: t("serverDoesNotSupportResumingDownloads"),
-      content: t("downloadedSoFarResumingWillRestartFromTheBeginning", { value0: formatBytes(downloadedBytes) }),
+      title: t(parallel ? "directRestartRequired" : "serverDoesNotSupportResumingDownloads"),
+      content: t(parallel ? "directRestartExplanation" : "downloadedSoFarResumingWillRestartFromTheBeginning", { value0: formatBytes(downloadedBytes) }),
       okText: t("restartDownload"),
       cancelText: t("keepPaused"),
       onOk: () => {
@@ -140,6 +140,7 @@ function patchPageItem(
     found = true;
     return {
       ...item,
+      direct_info: event.direct_info ?? item.direct_info,
       status: event.status,
       completed_segments: event.completed_segments,
       total_segments: event.total_segments,
@@ -164,6 +165,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   });
   const [activePage, setActivePage] = useState<PageState>(INITIAL_PAGE_STATE);
   const [historyPage, setHistoryPage] = useState<PageState>(INITIAL_PAGE_STATE);
+  const [historySearch, setHistorySearch] = useState("");
   const [loadingGroups, setLoadingGroups] = useState<Record<DownloadGroup, boolean>>({
     active: true,
     history: true,
@@ -173,6 +175,8 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   const historyPageRef = useRef(historyPage);
   const historyRequestIdRef = useRef(0);
   const bulkActionRef = useRef<BulkDownloadAction | null>(null);
+  const historyQueryRef = useRef({ keyword: "", page: 1, pageSize: historyPageSize });
+  const historySearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     activePageRef.current = activePage;
@@ -182,6 +186,50 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     historyPageRef.current = historyPage;
   }, [historyPage]);
 
+  const refreshHistory = useCallback(async (page?: number) => {
+    // 输入防抖期间的任务刷新由即将执行的搜索一并覆盖。
+    if (historySearchTimerRef.current !== null) return;
+    const query = { ...historyQueryRef.current, page: page ?? historyQueryRef.current.page };
+    historyQueryRef.current.page = query.page;
+    const requestId = ++historyRequestIdRef.current;
+    setLoadingGroups((prev) => ({ ...prev, history: true }));
+    try {
+      const result = await api.getDownloadsPage("history", query.page, query.pageSize, query.keyword);
+      if (historyRequestIdRef.current !== requestId) return;
+      historyQueryRef.current.page = result.page;
+      const nextState = toPageState(result);
+      historyPageRef.current = nextState;
+      setHistoryPage(nextState);
+    } catch (error) {
+      if (historyRequestIdRef.current !== requestId) return;
+      const nextState = { ...INITIAL_PAGE_STATE, pageSize: query.pageSize };
+      historyPageRef.current = nextState;
+      setHistoryPage(nextState);
+      console.error("Failed to load history downloads", error);
+      message.error(t("failedToLoadDownloadHistory", { value0: String(error) }));
+    } finally {
+      if (historyRequestIdRef.current === requestId) {
+        setLoadingGroups((prev) => ({ ...prev, history: false }));
+      }
+    }
+  }, []);
+
+  const searchHistory = useCallback((value: string) => {
+    setHistorySearch(value);
+    const keyword = value.trim();
+    if (keyword === historyQueryRef.current.keyword) return;
+    historyQueryRef.current.keyword = keyword;
+    historyQueryRef.current.page = 1;
+    // 立即废弃旧请求，即使新搜索还在等待防抖也不能回写旧结果。
+    historyRequestIdRef.current += 1;
+    if (historySearchTimerRef.current !== null) clearTimeout(historySearchTimerRef.current);
+    setLoadingGroups((prev) => ({ ...prev, history: true }));
+    historySearchTimerRef.current = setTimeout(() => {
+      historySearchTimerRef.current = null;
+      void refreshHistory(1);
+    }, keyword ? 300 : 0);
+  }, [refreshHistory]);
+
   const refreshCounts = useCallback(async () => {
     const nextCounts = await api.getDownloadCounts();
     setCounts(nextCounts);
@@ -189,30 +237,22 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   }, []);
 
   const refreshGroup = useCallback(async (group: DownloadGroup, page?: number) => {
+    if (group === "history") return refreshHistory(page);
     setLoadingGroups((prev) => ({ ...prev, [group]: true }));
     try {
-      const currentPage =
-        group === "active" ? activePageRef.current : historyPageRef.current;
-      const pageSize =
-        group === "history" ? historyPageSize : currentPage.pageSize;
+      const currentPage = activePageRef.current;
       const nextPage = await api.getDownloadsPage(
         group,
         page ?? currentPage.page,
-        pageSize
+        currentPage.pageSize
       );
       const nextState = toPageState(nextPage);
-
-      if (group === "active") {
-        activePageRef.current = nextState;
-        setActivePage(nextState);
-      } else {
-        historyPageRef.current = nextState;
-        setHistoryPage(nextState);
-      }
+      activePageRef.current = nextState;
+      setActivePage(nextState);
     } finally {
       setLoadingGroups((prev) => ({ ...prev, [group]: false }));
     }
-  }, [historyPageSize]);
+  }, [refreshHistory]);
 
   useEffect(() => {
     let disposed = false;
@@ -246,33 +286,16 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   }, []);
 
   useEffect(() => {
-    let disposed = false;
-    const requestId = historyRequestIdRef.current + 1;
-    historyRequestIdRef.current = requestId;
-
-    setLoadingGroups((prev) => ({ ...prev, history: true }));
-    void api
-      .getDownloadsPage("history", 1, historyPageSize)
-      .then((history) => {
-        if (!disposed && historyRequestIdRef.current === requestId) {
-          const nextHistoryPage = toPageState(history);
-          historyPageRef.current = nextHistoryPage;
-          setHistoryPage(nextHistoryPage);
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to load history downloads", error);
-      })
-      .finally(() => {
-        if (!disposed && historyRequestIdRef.current === requestId) {
-          setLoadingGroups((prev) => ({ ...prev, history: false }));
-        }
-      });
-
+    historyQueryRef.current.pageSize = historyPageSize;
+    void refreshHistory(1);
     return () => {
-      disposed = true;
+      historyRequestIdRef.current += 1;
+      if (historySearchTimerRef.current !== null) {
+        clearTimeout(historySearchTimerRef.current);
+        historySearchTimerRef.current = null;
+      }
     };
-  }, [historyPageSize]);
+  }, [historyPageSize, refreshHistory]);
 
   const flushProgressEvents = useCallback((batchedEvents: Array<[string, DownloadProgressEvent]>) => {
     const events = batchedEvents.map(([, event]) => event);
@@ -310,7 +333,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     void refreshGroup("active").catch((error) => {
       console.error("Failed to refresh active downloads", error);
     });
-    void refreshGroup("history", 1).catch((error) => {
+    void refreshGroup("history").catch((error) => {
       console.error("Failed to refresh history downloads", error);
     });
   }, [refreshCounts, refreshGroup]);
@@ -399,7 +422,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
       const check = await api.checkResumeDownload(id);
       const restartConfirmed =
         check.action === "confirm_restart"
-          ? await confirmRestartMp4Download(check.downloaded_bytes)
+          ? await confirmRestartMp4Download(check.downloaded_bytes, activePage.items.find((item) => item.id === id)?.direct_info?.parallel === true)
           : false;
 
       if (check.action === "confirm_restart" && !restartConfirmed) {
@@ -415,7 +438,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
       message.error(t("theOriginalUrlIsInvalidOrExpiredCannotResumeDownload"));
       return undefined;
     }
-  }, [refreshCounts, refreshGroup]);
+  }, [activePage.items, refreshCounts, refreshGroup]);
 
   const loadAllActiveDownloads = useCallback(async () => {
     const activeCounts = await api.getDownloadCounts();
@@ -627,7 +650,7 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
   }, [refreshCounts, refreshGroup]);
 
   const clearCompleted = useCallback(async () => {
-    if (counts.history_count === 0) {
+    if (counts.history_count === 0 || historyQueryRef.current.keyword) {
       return;
     }
 
@@ -649,10 +672,6 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     (page?: number) => refreshGroup("active", page),
     [refreshGroup]
   );
-  const refreshHistory = useCallback(
-    (page?: number) => refreshGroup("history", page),
-    [refreshGroup]
-  );
 
   return {
     counts,
@@ -664,6 +683,8 @@ export function useDownloads(historyPageSize = DEFAULT_PAGE_SIZE) {
     completedPage: historyPage.page,
     completedPageSize: historyPage.pageSize,
     completedTotal: historyPage.total,
+    historySearch,
+    searchHistory,
     loadingActive: loadingGroups.active,
     loadingHistory: loadingGroups.history,
     addDownload,

@@ -1,4 +1,13 @@
 {
+  "networkLink": "Lien réseau",
+  "localFile": "Fichier local",
+  "failedToLoadRecordingHistory": "Échec du chargement de l’historique des enregistrements : {{value0}}",
+  "searchDownloadFilename": "Rechercher un nom de fichier",
+  "searchByFilename": "Recherche par nom de fichier",
+  "matchingDownloadCount": "{{value0}} résultats trouvés",
+  "noMatchingDownloads": "Aucun résultat trouvé",
+  "searchingDownloads": "Recherche en cours…",
+  "failedToLoadDownloadHistory": "Échec du chargement de l’historique des téléchargements : {{value0}}",
   "installChromeExtension": "Installer l'extension Chrome",
   "openChrome": "Ouvrir Chrome",
   "installMicrosoftEdgeExtension": "Installer l'extension Microsoft Edge",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "Les règles par site nécessitent un site source",
   "filenameCleanupNoRulesInGroup": "Aucune règle dans ce groupe",
   "filenameCleanupOrderHint": "Les règles s’exécutent dans l’ordre de la liste",
-  "failedToSaveHttpsCertificateSettings": "Échec de l’enregistrement des paramètres de certificat HTTPS : {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "Échec de l’enregistrement des paramètres de certificat HTTPS : {{value0}}",
+  "directParallelDownload": "Téléchargement simultané par blocs",
+  "directParallelDownloadHint": "Active le téléchargement simultané par blocs pour les liens directs des vidéos de ce lot. Le serveur doit prendre en charge les requêtes Range.",
+  "directSingleFallback": "Connexion unique (téléchargement par blocs désactivé)",
+  "directCheckingRanges": "Vérification de la prise en charge des requêtes de plage",
+  "directBuffering": "En attente du téléchargement des blocs nécessaires…",
+  "directRestartRequired": "Redémarrage du téléchargement requis",
+  "directRestartExplanation": "Le fichier distant ou la prise en charge des requêtes de plage a changé, ou sa version ne peut pas être vérifiée. Le redémarrage supprimera {{value0}} de blocs enregistrés et relancera le téléchargement depuis le début."
 }

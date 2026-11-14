@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.1
+
+**更新说明**
+
+- 视频预览图支持本地文件，并可从已完成任务的右键菜单直接打开。
+- Direct 直链新增分片并发下载。
+- 下载并发上限提升至 10000。
+- 优化浏览器预览跳转，不再自动弹出主窗口。
+- 下载完成和录制完成列表新增右侧文件名搜索框。
+- 浏览器扩展将标题与媒体地址分开传递，避免改写地址导致下载失败，并兼容旧版 `title` 文件名逻辑。
+- 优化跨平台批量下载（链接超过上限无法跳转问题）：短链接唤醒、本机 HTTP 传输
+
+**Release Notes**
+
+- Video thumbnails now support local files and can be opened directly from the context menu for completed tasks.
+- Added concurrent chunk downloads for Direct links.
+- Increased the download concurrency limit to 10,000.
+- Browser preview links no longer bring up the main window.
+- Added right-aligned filename search to the completed downloads and recordings lists.
+- Improved cross-platform batch downloads (fixing launch failures when links exceed length limits) with short launch links and local HTTP transfers.
+
 ## 1.3.0
 
 - 新增「忽略 HTTPS 证书错误」网络设置，并优化证书校验失败时的多语言错误提示。

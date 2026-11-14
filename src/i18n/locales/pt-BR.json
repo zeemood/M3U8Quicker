@@ -1,4 +1,13 @@
 {
+  "networkLink": "Link de rede",
+  "localFile": "Arquivo local",
+  "failedToLoadRecordingHistory": "Falha ao carregar o histórico de gravações: {{value0}}",
+  "searchDownloadFilename": "Pesquisar nomes de arquivos",
+  "searchByFilename": "Pesquisar por nome de arquivo",
+  "matchingDownloadCount": "{{value0}} registros correspondentes encontrados",
+  "noMatchingDownloads": "Nenhum registro correspondente encontrado",
+  "searchingDownloads": "Pesquisando…",
+  "failedToLoadDownloadHistory": "Falha ao carregar o histórico de downloads: {{value0}}",
   "installChromeExtension": "Instalar a extensão do Chrome",
   "openChrome": "Abrir Chrome",
   "installMicrosoftEdgeExtension": "Instalar a extensão Microsoft Edge",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "Regras por site exigem um site de origem",
   "filenameCleanupNoRulesInGroup": "Nenhuma regra neste grupo",
   "filenameCleanupOrderHint": "As regras são executadas na ordem da lista",
-  "failedToSaveHttpsCertificateSettings": "Falha ao salvar configurações de certificado HTTPS: {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "Falha ao salvar configurações de certificado HTTPS: {{value0}}",
+  "directParallelDownload": "Download simultâneo em partes",
+  "directParallelDownloadHint": "Ativa o download simultâneo em partes para os links diretos de vídeo deste lote. O servidor deve oferecer suporte a solicitações Range.",
+  "directSingleFallback": "Conexão única (download em partes desativado)",
+  "directCheckingRanges": "Verificando o suporte a solicitações de intervalo",
+  "directBuffering": "Aguardando o download das partes necessárias…",
+  "directRestartRequired": "É necessário reiniciar o download",
+  "directRestartExplanation": "O arquivo remoto ou o suporte a solicitações de intervalo mudou, ou não é possível verificar sua versão. Reiniciar descartará {{value0}} de partes salvas e baixará novamente desde o início."
 }

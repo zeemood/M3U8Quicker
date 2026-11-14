@@ -1,4 +1,13 @@
 {
+  "networkLink": "網路連結",
+  "localFile": "本機檔案",
+  "failedToLoadRecordingHistory": "載入錄製歷史失敗：{{value0}}",
+  "searchDownloadFilename": "搜尋檔案名稱",
+  "searchByFilename": "依檔案名稱搜尋",
+  "matchingDownloadCount": "找到 {{value0}} 筆符合的記錄",
+  "noMatchingDownloads": "找不到符合的記錄",
+  "searchingDownloads": "正在搜尋…",
+  "failedToLoadDownloadHistory": "載入下載歷史失敗：{{value0}}",
   "installChromeExtension": "安裝 Chrome 擴充套件",
   "openChrome": "開啟Chrome",
   "installMicrosoftEdgeExtension": "安裝 Microsoft Edge 擴充套件",
@@ -657,5 +666,12 @@
   "openShutdownTool": "開啟關機工具",
   "failedToRequestSystemShutdown": "請求系統關機失敗：{{value0}}",
   "systemShutdownRequested": "已傳送系統關機請求",
-  "segmentRangeSummary": "顯示第 {{value0}}–{{value1}} 個分片，共 {{value2}} 個"
+  "segmentRangeSummary": "顯示第 {{value0}}–{{value1}} 個分片，共 {{value2}} 個",
+  "directParallelDownload": "並行分段下載",
+  "directParallelDownloadHint": "為本批次的直連影片啟用分段並行下載，需要伺服器支援 Range 請求。",
+  "directSingleFallback": "單一連線下載（未啟用分段）",
+  "directCheckingRanges": "正在檢查分段支援",
+  "directBuffering": "正在緩衝，等待所需分段下載…",
+  "directRestartRequired": "需要重新下載",
+  "directRestartExplanation": "遠端檔案或分段支援已變更，或無法確認檔案版本。重新下載將清除已儲存的 {{value0}} 分段資料並從頭開始。"
 }

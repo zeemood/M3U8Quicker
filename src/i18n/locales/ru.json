@@ -1,4 +1,13 @@
 {
+  "networkLink": "Сетевая ссылка",
+  "localFile": "Локальный файл",
+  "failedToLoadRecordingHistory": "Не удалось загрузить историю записей: {{value0}}",
+  "searchDownloadFilename": "Поиск по имени файла",
+  "searchByFilename": "Поиск по имени файла",
+  "matchingDownloadCount": "Найдено записей: {{value0}}",
+  "noMatchingDownloads": "Совпадений не найдено",
+  "searchingDownloads": "Поиск…",
+  "failedToLoadDownloadHistory": "Не удалось загрузить историю загрузок: {{value0}}",
   "installChromeExtension": "Установите расширение Chrome",
   "openChrome": "Открыть Chrome",
   "installMicrosoftEdgeExtension": "Установите расширение Microsoft Edge",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "Для правил сайта укажите сайт-источник",
   "filenameCleanupNoRulesInGroup": "В этой группе нет правил",
   "filenameCleanupOrderHint": "Правила выполняются по порядку списка",
-  "failedToSaveHttpsCertificateSettings": "Не удалось сохранить настройки сертификатов HTTPS: {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "Не удалось сохранить настройки сертификатов HTTPS: {{value0}}",
+  "directParallelDownload": "Параллельная загрузка по частям",
+  "directParallelDownloadHint": "Включает параллельную загрузку по частям для прямых ссылок на видео в этом пакете. Сервер должен поддерживать запросы Range.",
+  "directSingleFallback": "Одно соединение (загрузка по частям отключена)",
+  "directCheckingRanges": "Проверка поддержки запросов диапазона",
+  "directBuffering": "Ожидание загрузки необходимых частей…",
+  "directRestartRequired": "Требуется повторная загрузка",
+  "directRestartExplanation": "Удалённый файл или поддержка запросов диапазона изменились, либо невозможно проверить версию файла. При повторной загрузке будет удалено {{value0}} сохранённых частей, и загрузка начнётся заново."
 }

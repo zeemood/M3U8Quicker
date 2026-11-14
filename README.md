@@ -48,7 +48,6 @@
 - 自动扫描下载视频、直播视频
 - 一键新建下载视频任务/直播录制
 - 除通用网址，还兼容B站、抖音、CCTV等网站
-- 支持“中 / EN”切换，首次跟随浏览器语言，并记住手动选择
 
 ## 使用说明
 
@@ -58,9 +57,9 @@
 
 | 系统 | 文件 | 说明 |
 | :--- | :--- | :--- |
-| <img src="./doc/img/icons/windows.svg" width="18" height="18" alt="Windows" /> **Windows** | **x64**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_windows_x64_setup.exe) \| [免安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_windows_x64.zip)<br>**x86**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_windows_x86_setup.exe) \| [免安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_windows_x86.zip) | 大多数电脑选 x64<br>32 位系统选 x86 |
-| <img src="./doc/img/icons/macos.svg" width="18" height="18" alt="MacOS" /> **MacOS** | **Apple Silicon**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_macos_aarch64.dmg) \| [应用包压缩](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_macos_aarch64.app.tar.gz)<br>**Intel**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_macos_x64.dmg) \| [应用包压缩](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_macos_x64.app.tar.gz) | M芯片选 Apple Silicon<br>Intel 芯片选 Intel |
-| <img src="./doc/img/icons/linux.svg" width="18" height="18" alt="Linux" /> **Linux** | **安装包**：[deb](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_linux_amd64.deb) \| [rpm](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_linux_x86_64.rpm)<br>**免安装**：[AppImage](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.0_linux_amd64.AppImage) | Ubuntu/Debian/Linux Mint选deb<br>Fedora/RHEL/CentOS/openSUSE选rpm |
+| <img src="./doc/img/icons/windows.svg" width="18" height="18" alt="Windows" /> **Windows** | **x64**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_windows_x64_setup.exe) \| [免安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_windows_x64.zip)<br>**x86**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_windows_x86_setup.exe) \| [免安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_windows_x86.zip) | 大多数电脑选 x64<br>32 位系统选 x86 |
+| <img src="./doc/img/icons/macos.svg" width="18" height="18" alt="MacOS" /> **MacOS** | **Apple Silicon**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_macos_aarch64.dmg) \| [应用包压缩](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_macos_aarch64.app.tar.gz)<br>**Intel**：[安装包](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_macos_x64.dmg) \| [应用包压缩](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_macos_x64.app.tar.gz) | M芯片选 Apple Silicon<br>Intel 芯片选 Intel |
+| <img src="./doc/img/icons/linux.svg" width="18" height="18" alt="Linux" /> **Linux** | **安装包**：[deb](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_linux_amd64.deb) \| [rpm](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_linux_x86_64.rpm)<br>**免安装**：[AppImage](https://github.com/Liubsyy/M3U8Quicker/releases/latest/download/M3U8.Quicker_1.3.1_linux_amd64.AppImage) | Ubuntu/Debian/Linux Mint选deb<br>Fedora/RHEL/CentOS/openSUSE选rpm |
 
 MacOS 首次安装时如果遇到“无法打开”或“应用已损坏”之类的权限提示，可按下面方式处理：
 

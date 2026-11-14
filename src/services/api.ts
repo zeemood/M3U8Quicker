@@ -32,6 +32,15 @@ import type {
 } from "../types/settings";
 import type { UpdateAsset, UpdateInfo } from "../types/update";
 
+export interface BrowserBatchPayload {
+  items: Array<{ url: string; title: string; file_type: string }>;
+  extra_headers: string;
+}
+
+export function receiveBrowserBatch(id: string, secret: string): Promise<BrowserBatchPayload | null> {
+  return invoke("receive_browser_batch", { id, secret });
+}
+
 export function getAppLanguage(): Promise<AppLanguage> {
   return invoke("get_app_language");
 }
@@ -105,12 +114,14 @@ export async function setDownloadShutdownArmed(
 export async function getDownloadsPage(
   group: DownloadGroup,
   page: number,
-  pageSize: number
+  pageSize: number,
+  keyword?: string
 ): Promise<DownloadTaskPage> {
   return invoke<DownloadTaskPage>("get_downloads_page", {
     group,
     page,
     pageSize,
+    keyword,
   });
 }
 
@@ -456,17 +467,27 @@ export interface PreviewThumbnail {
   video_info: PreviewVideoInfo | null;
 }
 
+export async function showPreviewDialog(
+  message: string,
+  title: string,
+  settingsLabels?: [string, string]
+): Promise<boolean> {
+  return invoke("show_preview_dialog", { message, title, settingsLabels });
+}
+
 export async function createPreviewSession(
   url: string,
   extraHeaders?: string,
   sourceKind?: DownloadSourceKind,
-  sourceText?: string
+  sourceText?: string,
+  localPath?: string
 ): Promise<{ token: string; window_label: string }> {
   return invoke<{ token: string; window_label: string }>("create_preview_session", {
     url,
     extraHeaders: extraHeaders ?? null,
     sourceKind: sourceKind ?? null,
     sourceText: sourceText ?? null,
+    localPath: localPath ?? null,
   });
 }
 
@@ -541,12 +562,14 @@ export async function getLiveRecordCounts(): Promise<LiveRecordCounts> {
 export async function getLiveRecordsPage(
   group: LiveGroup,
   page: number,
-  pageSize: number
+  pageSize: number,
+  keyword?: string
 ): Promise<LiveRecordPage> {
   return invoke<LiveRecordPage>("get_live_records_page", {
     group,
     page,
     pageSize,
+    keyword,
   });
 }
 

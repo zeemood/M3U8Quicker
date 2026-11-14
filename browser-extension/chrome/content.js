@@ -9,7 +9,7 @@
   const PANEL_ID = "m3u8quicker-download-panel";
   const ROOT_HOST_ID = "m3u8quicker-root-host";
   const APP_DEEP_LINK_BASE_URL = "m3u8quicker://new-task";
-  const APP_BATCH_DEEP_LINK_BASE_URL = "m3u8quicker://batch-download";
+  const APP_BATCH_DEEP_LINK_BASE_URL = "m3u8quicker://batch-transfer";
   const APP_PREVIEW_DEEP_LINK_BASE_URL = "m3u8quicker://preview";
   const APP_LIVE_DEEP_LINK_BASE_URL = "m3u8quicker://new-live-record";
   const CHECK_PATTERN = /(png|image|ts|jpg|mp4|jpeg|EXTINF|MPD|SegmentTemplate|Representation)/i;
@@ -33,6 +33,10 @@
   const messages = {
     zh: {
       title: "选择要下载的视频", selectAll: "全选", deselect: "不选", clear: "清空",
+      batchSending: "正在连接客户端并发送…", batchRetry: "重试批量下载",
+      batchTimeout: "未能完成传输，请确认已安装并打开最新版客户端，然后点击重试。勾选已保留。",
+      batchTooLarge: "本次数据超过 16 MB，请减少勾选后重试。勾选已保留。",
+      batchInvalid: "客户端无法接收本次数据，请更新客户端和扩展后重试。勾选已保留。",
       batch: "批量下载", close: "关闭", empty: "暂无可下载视频",
       preview: "预览", copy: "复制", copied: "已复制", failed: "失败",
       download: "下载", record: "录播", quality: "{name} 清晰度",
@@ -40,6 +44,10 @@
     },
     en: {
       title: "Select videos to download", selectAll: "Select all", deselect: "Deselect", clear: "Clear",
+      batchSending: "Connecting and sending…", batchRetry: "Retry selected",
+      batchTimeout: "Transfer failed. Open the latest desktop app, then retry. Your selection is preserved.",
+      batchTooLarge: "This batch exceeds 16 MB. Select fewer items and retry. Your selection is preserved.",
+      batchInvalid: "The app could not accept this batch. Update the app and extension, then retry. Your selection is preserved.",
       batch: "Download selected", close: "Close", empty: "No videos available",
       preview: "Preview", copy: "Copy", copied: "Copied", failed: "Failed",
       download: "Download", record: "Record", quality: "{name} quality",
@@ -361,13 +369,13 @@
 
     if (isFlvLiveUrl(url)) {
       checkedTargets.add(url);
-      registerTarget(url, appendTitle(url));
+      registerTarget(url);
       return;
     }
 
     if (isDirectVideoUrl(url)) {
       checkedTargets.add(url);
-      registerTarget(url, appendTitle(url));
+      registerTarget(url);
       return;
     }
 
@@ -381,8 +389,6 @@
       return;
     }
     checkedTargets.add(url);
-
-    const normalizedUrl = appendTitle(url);
 
     try {
       const response = await fetch(url, {
@@ -399,10 +405,10 @@
         return;
       }
 
-      registerTarget(url, normalizedUrl);
+      registerTarget(url);
     } catch (error) {
       console.debug("[m3u8quicker] failed to validate m3u8 url", url, error);
-      registerTarget(url, normalizedUrl);
+      registerTarget(url);
     }
   }
 
@@ -445,9 +451,9 @@
     return match ? match[1].toLowerCase() : "mp4";
   }
 
-  function registerTarget(rawUrl, normalizedUrl) {
+  function registerTarget(rawUrl) {
     let changed = false;
-    if (!detectedTargets.find((item) => item.url === normalizedUrl)) {
+    if (!detectedTargets.find((item) => item.url === rawUrl)) {
       var type = detectFileType(rawUrl);
       var ext = detectFileExt(rawUrl);
       var fallback = type === "mp4"
@@ -456,7 +462,8 @@
           ? `dash-${detectedTargets.length + 1}.mpd`
         : `m3u8-${detectedTargets.length + 1}.m3u8`;
       addDetectedTarget({
-        url: normalizedUrl,
+        url: rawUrl,
+        title: getPageTitle(),
         fileName: getFileName(rawUrl, fallback),
         fileType: type,
         thumbnail: resolveThumbnailFor(rawUrl) || null,
@@ -464,7 +471,7 @@
       });
       changed = true;
     } else {
-      const existing = detectedTargets.find((item) => item.url === normalizedUrl);
+      const existing = detectedTargets.find((item) => item.url === rawUrl);
       if (existing && !existing.thumbnail) {
         existing.thumbnail = resolveThumbnailFor(rawUrl) || null;
         changed = Boolean(existing.thumbnail);
@@ -500,6 +507,7 @@
     );
     if (existing) {
       existing.url = url;
+      existing.title = detail.fileName || existing.title;
       existing.fileName = /\.[a-z0-9]{2,5}$/i.test(fileName) ? fileName : `${fileName}.${ext}`;
       existing.thumbnail = detail.thumbnail || existing.thumbnail || null;
       existing.qualityOptions = qualityOptions;
@@ -518,6 +526,7 @@
     qualityOptions.forEach((quality) => checkedTargets.add(stripTitleParam(quality.url)));
     addDetectedTarget({
       url,
+      title: detail.fileName || getPageTitle(),
       fileName: /\.[a-z0-9]{2,5}$/i.test(fileName) ? fileName : `${fileName}.${ext}`,
       fileType,
       thumbnail: detail.thumbnail || null,
@@ -574,6 +583,7 @@
     const name = sanitizeFilename(title || getPageTitle(), fallback);
     if (existing) {
       existing.url = manifestJson;
+      existing.title = title || existing.title;
       existing.fileName = `${name}.json`;
       existing.qualityOptions = qualityOptions;
       qualityOptions.forEach((quality) => checkedTargets.add(quality.url));
@@ -582,6 +592,7 @@
     }
     addDetectedTarget({
       url: manifestJson,
+      title: title || getPageTitle(),
       fileName: `${name}.json`,
       fileType: "dash",
       thumbnail: null,
@@ -602,39 +613,8 @@
     }
   }
 
-  function appendTitle(url) {
-    try {
-      const urlObj = new URL(url, window.location.href);
-      urlObj.searchParams.set("title", getPageTitle());
-      return urlObj.href;
-    } catch (error) {
-      return url;
-    }
-  }
-
-  // Only when the stored target carries no usable title (e.g. detected before the
-  // page title finished loading) do we re-read the current document.title at action time.
-  function ensureTitleParam(url) {
-    // Inline dash manifests are JSON strings, not URLs; never run them through
-    // the URL parser or they get percent-encoded into a broken page URL.
-    if (typeof url === "string" && url.trim().startsWith("{")) {
-      return url;
-    }
-    try {
-      const urlObj = new URL(url, window.location.href);
-      const existing = urlObj.searchParams.get("title");
-      if (existing && existing.trim()) {
-        return url;
-      }
-      const fresh = getPageTitle();
-      if (!fresh || !fresh.trim()) {
-        return url;
-      }
-      urlObj.searchParams.set("title", fresh);
-      return urlObj.href;
-    } catch (error) {
-      return url;
-    }
+  function getTargetTitle(item) {
+    return String(item.title || getCurrentTitleFromUrl(item.url) || getPageTitle() || "").trim();
   }
 
   function getPageTitle() {
@@ -770,6 +750,8 @@
       update();
     };
     const selectedUrls = new Set();
+    let batchSending = false;
+    let batchErrorKey = "";
     const panelItems = buildTargetsWithUniqueNames(detectedTargets);
 
     const header = document.createElement("div");
@@ -839,10 +821,20 @@
       panel.remove();
     });
 
+    const batchStatus = document.createElement("div");
+    batchStatus.setAttribute("role", "status");
+    batchStatus.style.cssText = "font-size:12px;color:#b42318;margin-bottom:8px;white-space:normal;";
+    languageBindings.push(() => { batchStatus.textContent = batchErrorKey ? t(batchErrorKey) : ""; });
+
     const updateBatchButtonState = () => {
       const checkedCount = selectedUrls.size;
-      batchButton.textContent = checkedCount > 0 ? `${t("batch")} (${checkedCount})` : t("batch");
-      batchButton.disabled = checkedCount === 0;
+      const label = t(batchErrorKey ? "batchRetry" : "batch");
+      batchButton.textContent = batchSending ? t("batchSending") : checkedCount > 0 ? `${label} (${checkedCount})` : label;
+      batchButton.disabled = batchSending || checkedCount === 0;
+      selectAllButton.disabled = batchSending;
+      clearSelectionButton.disabled = batchSending;
+      clearListButton.disabled = batchSending;
+      selectionInputs.forEach((input) => { input.disabled = batchSending; });
       batchButton.style.opacity = checkedCount > 0 ? "1" : "0.45";
       batchButton.style.cursor = checkedCount > 0 ? "pointer" : "not-allowed";
     };
@@ -869,15 +861,22 @@
       clearDetectedTargets();
     });
 
-    batchButton.addEventListener("click", () => {
-      if (selectedUrls.size === 0) {
-        return;
+    batchButton.addEventListener("click", async () => {
+      if (selectedUrls.size === 0 || batchSending) return;
+      batchSending = true;
+      batchErrorKey = "";
+      batchStatus.textContent = "";
+      updateBatchButtonState();
+      try {
+        await openBatchDownloader(panelItems.filter((item) => selectedUrls.has(item.selectionKey)));
+        panel.remove();
+      } catch (error) {
+        batchErrorKey = error.message === "tooLarge" ? "batchTooLarge" : error.message === "invalid" ? "batchInvalid" : "batchTimeout";
+        batchStatus.textContent = t(batchErrorKey);
+      } finally {
+        batchSending = false;
+        updateBatchButtonState();
       }
-
-      openBatchDownloader(
-        panelItems.filter((item) => selectedUrls.has(item.selectionKey))
-      );
-      panel.remove();
     });
 
     const languageSwitch = document.createElement("div");
@@ -920,6 +919,7 @@
     headerActions.appendChild(batchButton);
     panel.appendChild(header);
     panel.appendChild(headerActions);
+    panel.appendChild(batchStatus);
 
     if (panelItems.length === 0) {
       const empty = document.createElement("div");
@@ -1026,7 +1026,7 @@
       name.style.fontWeight = "600";
       name.style.color = "#17324d";
       name.addEventListener("click", () => {
-        openDownloader(item.url, item.fileType || "hls");
+        openDownloader(item.url, item.fileType || "hls", getTargetTitle(item));
         panel.remove();
       });
 
@@ -1060,9 +1060,6 @@
         qualitySelect.value = item.url;
         qualitySelect.addEventListener("change", () => {
           item.url = qualitySelect.value;
-          item.batchUrl = item.batchTitle
-            ? appendCustomTitle(item.url, item.batchTitle)
-            : item.url;
           content.title = item.url;
         });
         content.appendChild(qualitySelect);
@@ -1098,7 +1095,7 @@
       copyButton.style.flex = "0 0 auto";
       copyButton.addEventListener("click", async (event) => {
         event.stopPropagation();
-        const copied = await copyTextToClipboard(ensureTitleParam(item.url));
+        const copied = await copyTextToClipboard(item.url);
         copyState = copied ? "copied" : "failed";
         copyButton.textContent = t(copyState);
         window.setTimeout(() => {
@@ -1119,7 +1116,7 @@
       downloadButton.style.flex = "0 0 auto";
       downloadButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        openDownloader(item.url, item.fileType || "hls");
+        openDownloader(item.url, item.fileType || "hls", getTargetTitle(item));
         panel.remove();
       });
 
@@ -1147,7 +1144,7 @@
         recordButton.style.flex = "0 0 auto";
         recordButton.addEventListener("click", (event) => {
           event.stopPropagation();
-          openLiveRecorder(item.url);
+          openLiveRecorder(item.url, getTargetTitle(item));
           panel.remove();
         });
         actions.appendChild(recordButton);
@@ -1169,14 +1166,16 @@
     getUiRoot().appendChild(panel);
   }
 
-  function openDownloader(target, fileType) {
+  function openDownloader(target, fileType, title) {
     if (!target) {
       return;
     }
-    target = ensureTitleParam(target);
     const params = new URLSearchParams({
       url: target,
     });
+    if (title) {
+      params.set("title", title);
+    }
     if (fileType && fileType !== "hls") {
       params.set("file_type", fileType);
     }
@@ -1210,14 +1209,16 @@
     window.location.href = `${APP_PREVIEW_DEEP_LINK_BASE_URL}?${params.toString()}`;
   }
 
-  function openLiveRecorder(target) {
+  function openLiveRecorder(target, title) {
     if (!target) {
       return;
     }
-    target = ensureTitleParam(target);
     const params = new URLSearchParams({
       url: target,
     });
+    if (title) {
+      params.set("title", title);
+    }
     const extraHeaders = buildExtraHeaders();
     if (extraHeaders) {
       params.set("extra_headers", extraHeaders);
@@ -1225,30 +1226,62 @@
     window.location.href = `${APP_LIVE_DEEP_LINK_BASE_URL}?${params.toString()}`;
   }
 
-  function openBatchDownloader(items) {
-    if (!items || items.length === 0) {
-      return;
-    }
+  let batchTransferCache = null;
 
-    const params = new URLSearchParams({
-      items: items.map((item) => item.batchUrl || item.url).join("\n")
+  function sendBatchTransferMessage(transfer) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, retryable: true }), 8000);
+      const done = (result) => { clearTimeout(timer); resolve(result || { ok: false, retryable: true }); };
+      const message = { type: "m3u8quicker:batch-transfer", id: transfer.id, secret: transfer.secret, payload: transfer.payload };
+      try {
+        if (typeof browser !== "undefined" && browser.runtime) {
+          browser.runtime.sendMessage(message).then(done, () => done(null));
+        } else {
+          chrome.runtime.sendMessage(message, (result) => {
+            done(chrome.runtime.lastError ? null : result);
+          });
+        }
+      } catch {
+        done(null);
+      }
     });
-    const fileTypes = items.map((item) => item.fileType || "").join("\n");
-    if (fileTypes.trim()) {
-      params.set("file_types", fileTypes);
-    }
-    const extraHeaders = buildExtraHeaders();
-    if (extraHeaders) {
-      params.set("extra_headers", extraHeaders);
-    }
+  }
 
+  async function openBatchDownloader(items) {
+    if (!items || items.length === 0) return;
+    const payload = {
+      items: items.map((item) => ({ url: item.url, title: item.batchTitle || "", file_type: item.fileType || "" })),
+      extra_headers: buildExtraHeaders() || "",
+    };
+    const serialized = JSON.stringify(payload);
+    if (new TextEncoder().encode(serialized).length > 16 * 1024 * 1024) throw new Error("tooLarge");
+    const randomHex = (bytes) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+    // Reuse the same ID on retry so a lost acknowledgement cannot import twice.
+    if (!batchTransferCache || batchTransferCache.serialized !== serialized || Date.now() - batchTransferCache.created > 240000) {
+      batchTransferCache = { id: randomHex(16), secret: randomHex(32), payload, serialized, created: Date.now() };
+    }
+    const transfer = batchTransferCache;
+    const params = new URLSearchParams({ id: transfer.id, secret: transfer.secret, attempt: randomHex(8) });
+    // Keep navigation synchronous with the click so browsers retain user activation.
     window.location.href = `${APP_BATCH_DEEP_LINK_BASE_URL}?${params.toString()}`;
+    const deadline = Date.now() + 90000;
+    do {
+      const result = await sendBatchTransferMessage(transfer);
+      if (result.ok) {
+        if (batchTransferCache === transfer) batchTransferCache = null;
+        return;
+      }
+      if (!result.retryable) throw new Error(result.error || "invalid");
+      // Each round sends a runtime message, keeping the MV3 worker active during cold start.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    } while (Date.now() < deadline);
+    throw new Error("timeout");
   }
 
   function buildTargetsWithUniqueNames(items) {
     const totals = new Map();
     items.forEach((item) => {
-      const key = String(getCurrentTitleFromUrl(item.url) || "").trim().toLowerCase();
+      const key = getTargetTitle(item).toLowerCase();
       if (!key) {
         return;
       }
@@ -1257,7 +1290,7 @@
 
     const indexes = new Map();
     return items.map((item) => {
-      const title = String(getCurrentTitleFromUrl(item.url) || "").trim();
+      const title = getTargetTitle(item);
       const key = title.toLowerCase();
       const total = totals.get(key) || 0;
       if (!key || total <= 1) {
@@ -1265,8 +1298,7 @@
           ...item,
           selectionKey: item.groupId || item.url,
           displayName: item.fileName || "video",
-          batchUrl: item.url,
-          batchTitle: ""
+          batchTitle: title
         };
       }
 
@@ -1276,7 +1308,6 @@
         ...item,
         selectionKey: item.groupId || item.url,
         displayName: item.fileName || "video",
-        batchUrl: appendCustomTitle(item.url, `${title}-${nextIndex}`),
         batchTitle: `${title}-${nextIndex}`
       };
     });
@@ -1288,16 +1319,6 @@
       return urlObj.searchParams.get("title") || "";
     } catch (error) {
       return "";
-    }
-  }
-
-  function appendCustomTitle(url, title) {
-    try {
-      const urlObj = new URL(url, window.location.href);
-      urlObj.searchParams.set("title", title);
-      return urlObj.href;
-    } catch (error) {
-      return url;
     }
   }
 

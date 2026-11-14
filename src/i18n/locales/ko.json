@@ -1,4 +1,13 @@
 {
+  "networkLink": "네트워크 링크",
+  "localFile": "로컬 파일",
+  "failedToLoadRecordingHistory": "녹화 기록을 불러오지 못했습니다: {{value0}}",
+  "searchDownloadFilename": "파일 이름 검색",
+  "searchByFilename": "파일 이름으로 검색",
+  "matchingDownloadCount": "일치하는 기록 {{value0}}개",
+  "noMatchingDownloads": "일치하는 기록이 없습니다",
+  "searchingDownloads": "검색 중…",
+  "failedToLoadDownloadHistory": "다운로드 기록을 불러오지 못했습니다: {{value0}}",
   "installChromeExtension": "Chrome 확장 설치",
   "openChrome": "Chrome 열기",
   "installMicrosoftEdgeExtension": "Microsoft Edge 확장 설치",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "사이트 규칙에는 출처 사이트가 필요합니다",
   "filenameCleanupNoRulesInGroup": "이 그룹에 규칙이 없습니다",
   "filenameCleanupOrderHint": "규칙은 목록 순서대로 실행됩니다",
-  "failedToSaveHttpsCertificateSettings": "HTTPS 인증서 설정 저장 실패: {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "HTTPS 인증서 설정 저장 실패: {{value0}}",
+  "directParallelDownload": "병렬 분할 다운로드",
+  "directParallelDownloadHint": "이번 일괄 다운로드의 직접 동영상 링크에 병렬 분할 다운로드를 사용합니다. 서버가 Range 요청을 지원해야 합니다.",
+  "directSingleFallback": "단일 연결(분할 다운로드 꺼짐)",
+  "directCheckingRanges": "분할 다운로드 지원 확인 중",
+  "directBuffering": "필요한 부분이 다운로드될 때까지 버퍼링 중…",
+  "directRestartRequired": "다시 다운로드해야 합니다",
+  "directRestartExplanation": "원격 파일 또는 범위 요청 지원이 변경되었거나 파일 버전을 확인할 수 없습니다. 다시 시작하면 저장된 {{value0}}의 분할 데이터를 삭제하고 처음부터 다운로드합니다."
 }

@@ -182,6 +182,8 @@ fn task_to_detail(task: &DownloadTask) -> DownloadTaskDetail {
 
 pub fn task_to_summary(task: &DownloadTask) -> DownloadTaskSummary {
     DownloadTaskSummary {
+        direct_parallel: task.direct_parallel,
+        direct_info: task.direct_info.clone(),
         id: task.id.clone(),
         filename: task.filename.clone(),
         file_type: task.file_type,
@@ -245,6 +247,7 @@ async fn refresh_completed_file_size(summary: &mut DownloadTaskSummary) {
 
 pub fn task_to_segment_state(task: &DownloadTask) -> DownloadTaskSegmentState {
     DownloadTaskSegmentState {
+        segment_errors: Default::default(),
         id: task.id.clone(),
         total_segments: task.total_segments,
         completed_segment_indices: task.completed_segment_indices.clone(),
@@ -258,6 +261,8 @@ fn task_from_parts(
     detail: DownloadTaskDetail,
 ) -> Result<DownloadTask, AppError> {
     Ok(DownloadTask {
+        direct_parallel: summary.direct_parallel,
+        direct_info: summary.direct_info,
         id: summary.id,
         url: detail.url,
         source_kind: detail.source_kind,
@@ -487,32 +492,109 @@ pub async fn get_downloads_page(
     group: DownloadGroup,
     page: usize,
     page_size: usize,
+    keyword: Option<&str>,
 ) -> Result<DownloadTaskPage, AppError> {
     let items = load_download_summaries(app_handle, group).await?;
-    let safe_page = page.max(1);
+    let mut result = filter_downloads_page(items, page, page_size, keyword);
+    for item in &mut result.items {
+        refresh_completed_file_size(item).await;
+    }
+    Ok(result)
+}
+
+fn filter_downloads_page(
+    mut items: Vec<DownloadTaskSummary>,
+    page: usize,
+    page_size: usize,
+    keyword: Option<&str>,
+) -> DownloadTaskPage {
+    let keyword = keyword.unwrap_or_default().trim().to_lowercase();
+    if !keyword.is_empty() {
+        items.retain(|item| item.filename.to_lowercase().contains(&keyword));
+    }
     let safe_page_size = page_size.max(1);
     let total = items.len();
-    let start = safe_page.saturating_sub(1) * safe_page_size;
-    let paged_items = if start >= total {
-        Vec::new()
-    } else {
-        let mut paged_items = items
-            .into_iter()
-            .skip(start)
-            .take(safe_page_size)
-            .collect::<Vec<_>>();
-        for item in &mut paged_items {
-            refresh_completed_file_size(item).await;
-        }
-        paged_items
-    };
+    // 删除当前页最后一条记录后，回到仍有结果的最后一页。
+    let safe_page = page.max(1).min(total.div_ceil(safe_page_size).max(1));
+    let start = safe_page.saturating_sub(1).saturating_mul(safe_page_size);
+    let paged_items = items.into_iter().skip(start).take(safe_page_size).collect();
 
-    Ok(DownloadTaskPage {
+    DownloadTaskPage {
         items: paged_items,
         total,
         page: safe_page,
         page_size: safe_page_size,
-    })
+    }
+}
+
+#[cfg(test)]
+mod download_search_tests {
+    use super::*;
+    use crate::models::{DownloadStatus, FileType};
+
+    fn summaries(names: &[&str]) -> Vec<DownloadTaskSummary> {
+        names.iter().map(|name| DownloadTaskSummary {
+            id: name.to_string(),
+            filename: name.to_string(),
+            file_type: FileType::Mp4,
+            direct_parallel: false,
+            direct_info: None,
+            hls_output_mode: Default::default(),
+            hls_media_kind: Default::default(),
+            hls_selection: None,
+            encryption_method: None,
+            output_dir: "D:/旅行".to_string(),
+            status: DownloadStatus::Completed,
+            total_segments: 1,
+            completed_segments: 1,
+            failed_segment_count: 0,
+            total_bytes: 100,
+            speed_bytes_per_sec: 0,
+            created_at: "2026-11-11T00:00:00Z".to_string(),
+            completed_at: None,
+            updated_at: "2026-11-11T00:00:00Z".to_string(),
+            playback_available: true,
+            file_path: None,
+        }).collect()
+    }
+
+    #[test]
+    fn search_filters_before_pagination_and_preserves_order() {
+        let names = ["other.mp4", "TRIP-1.mp4", "trip-2.mp4", "other-2.mp4", "Trip-3.mp4"];
+        let page = filter_downloads_page(summaries(&names), 2, 2, Some("  tRiP  "));
+        assert_eq!(page.total, 3);
+        assert_eq!(page.page, 2);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].filename, "Trip-3.mp4");
+    }
+
+    #[test]
+    fn search_matches_chinese_filenames_but_not_paths() {
+        let page = filter_downloads_page(summaries(&["云南旅行.mp4", "other.mp4", "旅行随拍.mp4"]), 1, 50, Some("旅行"));
+        assert_eq!(page.total, 2);
+        assert_eq!(page.items[0].filename, "云南旅行.mp4");
+        assert_eq!(page.items[1].filename, "旅行随拍.mp4");
+    }
+
+    #[test]
+    fn clearing_search_restores_all_records() {
+        for keyword in [None, Some(""), Some(" \t ")] {
+            let page = filter_downloads_page(summaries(&["a.mp4", "b.mp4"]), 1, 50, keyword);
+            assert_eq!(page.total, 2);
+            assert_eq!(page.items[0].filename, "a.mp4");
+            assert_eq!(page.items[1].filename, "b.mp4");
+        }
+    }
+
+    #[test]
+    fn search_handles_empty_results_and_clamps_removed_pages() {
+        let empty = filter_downloads_page(summaries(&["a.mp4"]), usize::MAX, 0, Some("missing"));
+        assert_eq!((empty.total, empty.page, empty.page_size), (0, 1, 1));
+        assert!(empty.items.is_empty());
+        let last = filter_downloads_page(summaries(&["a.mp4", "b.mp4"]), 3, 1, None);
+        assert_eq!(last.page, 2);
+        assert_eq!(last.items[0].filename, "b.mp4");
+    }
 }
 
 pub async fn save_task(
@@ -912,42 +994,126 @@ pub async fn get_live_records_page(
     group: LiveGroup,
     page: usize,
     page_size: usize,
+    keyword: Option<&str>,
 ) -> Result<LiveRecordPage, AppError> {
     let items = load_live_summaries(app_handle, group).await?;
+    let mut result = filter_live_records_page(items, group, page, page_size, keyword);
+    for item in &mut result.items {
+        // For Recording tasks the in-memory state holds the latest bytes;
+        // for finished tasks the file size on disk is the ground truth.
+        if matches!(
+            item.status,
+            LiveRecordStatus::Recorded
+                | LiveRecordStatus::Failed(_)
+                | LiveRecordStatus::Cancelled
+                | LiveRecordStatus::Paused
+        ) {
+            refresh_live_file_size(item).await;
+        }
+    }
+    Ok(result)
+}
+
+fn filter_live_records_page(
+    mut items: Vec<LiveRecordSummary>,
+    group: LiveGroup,
+    page: usize,
+    page_size: usize,
+    keyword: Option<&str>,
+) -> LiveRecordPage {
+    if group == LiveGroup::History {
+        let keyword = keyword.unwrap_or_default().trim().to_lowercase();
+        if !keyword.is_empty() {
+            items.retain(|item| item.filename.to_lowercase().contains(&keyword));
+        }
+    }
     let safe_page = page.max(1);
     let safe_page_size = page_size.max(1);
     let total = items.len();
-    let start = safe_page.saturating_sub(1) * safe_page_size;
-    let paged_items = if start >= total {
-        Vec::new()
+    let safe_page = if group == LiveGroup::History {
+        safe_page.min(total.div_ceil(safe_page_size).max(1))
     } else {
-        let mut paged_items = items
-            .into_iter()
-            .skip(start)
-            .take(safe_page_size)
-            .collect::<Vec<_>>();
-        for item in &mut paged_items {
-            // For Recording tasks the in-memory state holds the latest bytes;
-            // for finished tasks the file size on disk is the ground truth.
-            if matches!(
-                item.status,
-                LiveRecordStatus::Recorded
-                    | LiveRecordStatus::Failed(_)
-                    | LiveRecordStatus::Cancelled
-                    | LiveRecordStatus::Paused
-            ) {
-                refresh_live_file_size(item).await;
-            }
-        }
-        paged_items
+        safe_page
     };
+    let start = safe_page.saturating_sub(1).saturating_mul(safe_page_size);
+    let paged_items = items.into_iter().skip(start).take(safe_page_size).collect();
 
-    Ok(LiveRecordPage {
+    LiveRecordPage {
         items: paged_items,
         total,
         page: safe_page,
         page_size: safe_page_size,
-    })
+    }
+}
+
+#[cfg(test)]
+mod live_search_tests {
+    use super::*;
+
+    fn summaries(names: &[&str]) -> Vec<LiveRecordSummary> {
+        names.iter().map(|name| LiveRecordSummary {
+            id: name.to_string(),
+            filename: name.to_string(),
+            protocol: Default::default(),
+            url: "https://example.com/旅行.m3u8".to_string(),
+            output_dir: "D:/旅行".to_string(),
+            status: LiveRecordStatus::Recorded,
+            total_bytes: 100,
+            speed_bytes_per_sec: 0,
+            duration_ms: 1000,
+            created_at: "2026-11-12T00:00:00Z".to_string(),
+            completed_at: None,
+            updated_at: "2026-11-12T00:00:00Z".to_string(),
+            file_path: None,
+            temp_dir: None,
+            hls_media_kind: None,
+            segment_count: 1,
+            split: None,
+            part_paths: Vec::new(),
+            record_dir: None,
+        }).collect()
+    }
+
+    #[test]
+    fn recording_search_filters_before_pagination() {
+        let page = filter_live_records_page(
+            summaries(&["other", "LIVE-1", "live-2", "other-2", "Live-3"]),
+            LiveGroup::History, 2, 2, Some("  liVe  "),
+        );
+        assert_eq!((page.total, page.page), (3, 2));
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].filename, "Live-3");
+    }
+
+    #[test]
+    fn recording_search_matches_chinese_names_only() {
+        let page = filter_live_records_page(
+            summaries(&["旅行直播", "other", "旅行回放"]),
+            LiveGroup::History, 1, 50, Some("旅行"),
+        );
+        assert_eq!(page.total, 2);
+        assert_eq!(page.items[0].filename, "旅行直播");
+        assert_eq!(page.items[1].filename, "旅行回放");
+    }
+
+    #[test]
+    fn recording_search_clears_and_clamps_pages() {
+        for keyword in [None, Some(""), Some(" \t ")] {
+            let page = filter_live_records_page(summaries(&["a", "b"]), LiveGroup::History, 3, 1, keyword);
+            assert_eq!((page.total, page.page), (2, 2));
+            assert_eq!(page.items[0].filename, "b");
+        }
+        let page = filter_live_records_page(summaries(&["a"]), LiveGroup::History, usize::MAX, 0, Some("missing"));
+        assert_eq!((page.total, page.page, page.page_size), (0, 1, 1));
+        assert!(page.items.is_empty());
+    }
+
+    #[test]
+    fn recording_search_does_not_filter_active_records() {
+        let page = filter_live_records_page(summaries(&["a", "b"]), LiveGroup::Active, 1, 50, Some("missing"));
+        assert_eq!(page.total, 2);
+        assert_eq!(page.items.len(), 2);
+    }
 }
 
 pub async fn delete_live_task(

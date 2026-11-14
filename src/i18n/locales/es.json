@@ -1,4 +1,13 @@
 {
+  "networkLink": "Enlace de red",
+  "localFile": "Archivo local",
+  "failedToLoadRecordingHistory": "No se pudo cargar el historial de grabaciones: {{value0}}",
+  "searchDownloadFilename": "Buscar nombres de archivo",
+  "searchByFilename": "Buscar por nombre de archivo",
+  "matchingDownloadCount": "Se encontraron {{value0}} registros coincidentes",
+  "noMatchingDownloads": "No se encontraron registros coincidentes",
+  "searchingDownloads": "Buscando…",
+  "failedToLoadDownloadHistory": "No se pudo cargar el historial de descargas: {{value0}}",
   "installChromeExtension": "Instala la extensión de Chrome",
   "openChrome": "Abrir Chrome",
   "installMicrosoftEdgeExtension": "Instalar la extensión Microsoft Edge",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "Las reglas por sitio requieren un sitio de origen",
   "filenameCleanupNoRulesInGroup": "No hay reglas en este grupo",
   "filenameCleanupOrderHint": "Las reglas se ejecutan en orden de lista",
-  "failedToSaveHttpsCertificateSettings": "No se pudo guardar la configuración de certificados HTTPS: {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "No se pudo guardar la configuración de certificados HTTPS: {{value0}}",
+  "directParallelDownload": "Descarga simultánea por fragmentos",
+  "directParallelDownloadHint": "Activa la descarga simultánea por fragmentos para los enlaces directos de vídeo de este lote. El servidor debe admitir solicitudes Range.",
+  "directSingleFallback": "Conexión única (descarga por fragmentos desactivada)",
+  "directCheckingRanges": "Comprobando la compatibilidad con solicitudes de rango",
+  "directBuffering": "Esperando la descarga de los fragmentos necesarios…",
+  "directRestartRequired": "Es necesario reiniciar la descarga",
+  "directRestartExplanation": "El archivo remoto o la compatibilidad con solicitudes de rango ha cambiado, o no se puede verificar su versión. Al reiniciar se descartarán {{value0}} de fragmentos guardados y se descargará de nuevo."
 }

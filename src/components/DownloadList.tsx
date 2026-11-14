@@ -27,6 +27,7 @@ import {
   GlobalOutlined,
   InfoCircleOutlined,
   PauseCircleOutlined,
+  PictureOutlined,
   ReloadOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -65,10 +66,12 @@ interface DownloadListProps {
   onStop?: (id: string) => void;
   onPlay?: (task: DownloadTaskSummary) => void;
   onAnalyze?: (filePath: string) => void;
+  onPreview?: (task: DownloadTaskSummary) => void;
   loading: boolean;
   showActions: ("pause" | "resume" | "cancel" | "stop" | "remove" | "open" | "play")[];
   showSpeed?: boolean;
   actionsHeaderExtra?: ReactNode;
+  emptyText?: ReactNode;
   cancelLabels?: CancelLabels;
   statusTagOverride?: (status: DownloadStatus) => ReactNode | undefined;
   /** Override the "in progress" set when deciding which timestamp to show. */
@@ -125,6 +128,9 @@ function calculatePercentage(record: DownloadTaskSummary): number {
   if (record.is_live) {
     return 0;
   }
+  if (record.direct_info?.parallel && record.direct_info.total_bytes > 0) {
+    return Math.min(100, record.total_bytes / record.direct_info.total_bytes * 100);
+  }
   if (record.total_segments <= 0) {
     return 0;
   }
@@ -159,10 +165,12 @@ export const DownloadList = memo(function DownloadList({
   onStop,
   onPlay,
   onAnalyze,
+  onPreview,
   loading,
   showActions,
   showSpeed = true,
   actionsHeaderExtra,
+  emptyText,
   cancelLabels,
   statusTagOverride,
 }: DownloadListProps) {
@@ -208,6 +216,14 @@ export const DownloadList = memo(function DownloadList({
         disabled: !canOpenInProgressPlayback(record),
       });
     }
+    if (onPreview && record.status === "Completed") {
+      opGroup.push({
+        key: "preview",
+        icon: <PictureOutlined />,
+        label: t("videoThumbnails"),
+        disabled: !record.file_path?.trim(),
+      });
+    }
     if (onAnalyze && record.status === "Completed") {
       opGroup.push({
         key: "analyze",
@@ -241,11 +257,12 @@ export const DownloadList = memo(function DownloadList({
         label: t("stopRecording"),
       });
     }
-    if (record.failed_segment_count > 0 && !record.is_live) {
+    if ((record.failed_segment_count > 0 || (record.direct_parallel && typeof record.status === "object")) && !record.is_live) {
       opGroup.push({
         key: "retry",
         icon: <ReloadOutlined />,
-        label: t("retryFailedSegments"),
+        label: t(record.failed_segment_count > 0 ? "retryFailedSegments" : "retry"),
+        disabled: record.direct_parallel === true && record.status === "Downloading",
       });
     }
 
@@ -307,6 +324,11 @@ export const DownloadList = memo(function DownloadList({
       case "analyze":
         if (record.status === "Completed" && record.file_path?.trim()) {
           onAnalyze?.(record.file_path);
+        }
+        return;
+      case "preview":
+        if (record.status === "Completed" && record.file_path?.trim()) {
+          onPreview?.(record);
         }
         return;
       case "pause":
@@ -514,6 +536,7 @@ export const DownloadList = memo(function DownloadList({
             size="small"
             icon={<ReloadOutlined />}
             style={{ paddingInline: 0, marginBottom: 8 }}
+            disabled={record.direct_parallel === true && record.status === "Downloading"}
             onClick={() => onRetryFailed(record.id)}
           >
             {t("retryFailedSegments")}</Button>
@@ -588,6 +611,11 @@ export const DownloadList = memo(function DownloadList({
                   {record.filename}
                 </span>
               </div>
+              {record.direct_parallel && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {t(record.direct_info?.parallel ? "directParallelDownload" : record.direct_info ? "directSingleFallback" : "directCheckingRanges")}
+                </Typography.Text>
+              )}
               {record.encryption_method && (
                 <Typography.Text
                   type="secondary"
@@ -631,7 +659,7 @@ export const DownloadList = memo(function DownloadList({
             }
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {isDirectFileType(record.file_type) || record.is_live ? (
+            {(isDirectFileType(record.file_type) && !record.direct_info?.parallel) || record.is_live ? (
               <span>{formatBytes(record.total_bytes)}</span>
             ) : (
               <>
@@ -877,7 +905,7 @@ export const DownloadList = memo(function DownloadList({
         }}
         size="middle"
         tableLayout="fixed"
-        locale={{ emptyText: t("noDownloadTasks") }}
+        locale={{ emptyText: emptyText ?? t("noDownloadTasks") }}
         onRow={(record) => ({
           onContextMenu: (event) => {
             if (buildMenuItems(record).length === 0) return;

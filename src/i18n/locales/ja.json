@@ -1,4 +1,13 @@
 {
+  "networkLink": "ネットワークリンク",
+  "localFile": "ローカルファイル",
+  "failedToLoadRecordingHistory": "録画履歴の読み込みに失敗しました：{{value0}}",
+  "searchDownloadFilename": "ファイル名を検索",
+  "searchByFilename": "ファイル名で検索",
+  "matchingDownloadCount": "{{value0}} 件の一致する履歴",
+  "noMatchingDownloads": "一致する履歴がありません",
+  "searchingDownloads": "検索中…",
+  "failedToLoadDownloadHistory": "ダウンロード履歴の読み込みに失敗しました：{{value0}}",
   "installChromeExtension": "Chrome 拡張機能をインストールする",
   "openChrome": "Chrome を開く",
   "installMicrosoftEdgeExtension": "Microsoft Edge 拡張機能をインストールする",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "サイト別ルールには配信サイトが必要です",
   "filenameCleanupNoRulesInGroup": "このグループにはルールがありません",
   "filenameCleanupOrderHint": "ルールは一覧の順に実行されます",
-  "failedToSaveHttpsCertificateSettings": "HTTPS 証明書の設定を保存できませんでした：{{value0}}"
+  "failedToSaveHttpsCertificateSettings": "HTTPS 証明書の設定を保存できませんでした：{{value0}}",
+  "directParallelDownload": "分割並列ダウンロード",
+  "directParallelDownloadHint": "この一括ダウンロード内の動画の直接リンクを分割して並列ダウンロードします。サーバーが Range リクエストに対応している必要があります。",
+  "directSingleFallback": "単一接続（分割ダウンロード無効）",
+  "directCheckingRanges": "分割ダウンロードへの対応を確認中",
+  "directBuffering": "必要な部分のダウンロードを待機中…",
+  "directRestartRequired": "再ダウンロードが必要です",
+  "directRestartExplanation": "リモートファイルまたは範囲指定への対応が変更されたか、ファイルのバージョンを確認できません。再ダウンロードすると、保存済みの {{value0}} のデータを削除して最初からやり直します。"
 }

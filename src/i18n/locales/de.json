@@ -1,4 +1,13 @@
 {
+  "networkLink": "Netzwerklink",
+  "localFile": "Lokale Datei",
+  "failedToLoadRecordingHistory": "Aufnahmeverlauf konnte nicht geladen werden: {{value0}}",
+  "searchDownloadFilename": "Dateinamen suchen",
+  "searchByFilename": "Nach Dateiname suchen",
+  "matchingDownloadCount": "{{value0}} passende Einträge gefunden",
+  "noMatchingDownloads": "Keine passenden Einträge gefunden",
+  "searchingDownloads": "Suche läuft…",
+  "failedToLoadDownloadHistory": "Downloadverlauf konnte nicht geladen werden: {{value0}}",
   "installChromeExtension": "Installieren Sie Chrome Erweiterung",
   "openChrome": "Chrome öffnen",
   "installMicrosoftEdgeExtension": "Installieren Sie Microsoft Edge Erweiterung",
@@ -618,5 +627,12 @@
   "filenameCleanupSiteRequired": "Website-Regeln benötigen eine Quellwebsite",
   "filenameCleanupNoRulesInGroup": "Keine Regeln in dieser Gruppe",
   "filenameCleanupOrderHint": "Regeln werden in Listenreihenfolge ausgeführt",
-  "failedToSaveHttpsCertificateSettings": "HTTPS-Zertifikatseinstellungen konnten nicht gespeichert werden: {{value0}}"
+  "failedToSaveHttpsCertificateSettings": "HTTPS-Zertifikatseinstellungen konnten nicht gespeichert werden: {{value0}}",
+  "directParallelDownload": "Paralleler Download in Teilstücken",
+  "directParallelDownloadHint": "Aktiviert parallele Downloads in Teilstücken für direkte Videolinks in diesem Stapel. Der Server muss Range-Anfragen unterstützen.",
+  "directSingleFallback": "Einzelverbindung (Teildownloads deaktiviert)",
+  "directCheckingRanges": "Unterstützung für Bereichsanfragen wird geprüft",
+  "directBuffering": "Warten auf den Download der benötigten Teilstücke…",
+  "directRestartRequired": "Neustart des Downloads erforderlich",
+  "directRestartExplanation": "Die entfernte Datei oder die Unterstützung für Bereichsanfragen hat sich geändert, oder die Dateiversion kann nicht überprüft werden. Beim Neustart werden {{value0}} gespeicherte Teildaten verworfen und erneut heruntergeladen."
 }

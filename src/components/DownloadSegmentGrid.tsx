@@ -38,6 +38,7 @@ export function DownloadSegmentGrid({
         return (
           <div
             key={segmentNumber}
+            title={segmentState.segment_errors?.[segmentNumber]}
             className={segmentClassName}
             style={{
               minWidth: 36,

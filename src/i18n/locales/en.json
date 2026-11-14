@@ -1,4 +1,13 @@
 {
+  "networkLink": "Network link",
+  "localFile": "Local file",
+  "failedToLoadRecordingHistory": "Failed to load recording history: {{value0}}",
+  "searchDownloadFilename": "Search filenames",
+  "searchByFilename": "Search by filename",
+  "matchingDownloadCount": "Found {{value0}} matching records",
+  "noMatchingDownloads": "No matching records found",
+  "searchingDownloads": "Searching…",
+  "failedToLoadDownloadHistory": "Failed to load download history: {{value0}}",
   "installChromeExtension": "Install Chrome extension",
   "openChrome": "Open Chrome",
   "installMicrosoftEdgeExtension": "Install Microsoft Edge extension",
@@ -657,5 +666,12 @@
   "openShutdownTool": "Open shutdown tool",
   "failedToRequestSystemShutdown": "Failed to request system shutdown: {{value0}}",
   "systemShutdownRequested": "System shutdown requested",
-  "segmentRangeSummary": "Showing segments {{value0}}–{{value1}} of {{value2}}"
+  "segmentRangeSummary": "Showing segments {{value0}}–{{value1}} of {{value2}}",
+  "directParallelDownload": "Concurrent chunk download",
+  "directParallelDownloadHint": "Enable concurrent chunk downloads for direct video links in this batch. The server must support Range requests.",
+  "directSingleFallback": "Single connection (parallel unavailable)",
+  "directCheckingRanges": "Checking range support",
+  "directBuffering": "Buffering downloaded chunks…",
+  "directRestartRequired": "Restart required",
+  "directRestartExplanation": "The remote file or range support changed, or its version cannot be verified. Restarting will discard {{value0}} of saved chunks and download again."
 }
