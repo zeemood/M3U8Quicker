@@ -34,3 +34,26 @@ test("progress column rerenders when segment popover data loads", () => {
     "progress column must not skip rerenders when segment popover data changes"
   );
 });
+
+test("progress bar keeps a stable width across percentage labels", () => {
+  const progressIndex = source.indexOf("<Progress");
+  assert.notEqual(progressIndex, -1, "progress component not found");
+  const progressSource = source.slice(progressIndex, source.indexOf("/>", progressIndex));
+  assert.match(
+    progressSource,
+    /percent=\{Math\.round\(calculatePercentage\(record\) \* 10\) \/ 10\}/
+  );
+  assert.doesNotMatch(progressSource, /\bformat=/);
+  assert.match(progressSource, /width:\s*42/);
+  assert.match(progressSource, /fontVariantNumeric:\s*"tabular-nums"/);
+});
+
+test("segment popover opens on click instead of hover", () => {
+  const popoverIndex = source.indexOf("<Popover");
+  assert.notEqual(popoverIndex, -1, "segment popover not found");
+  const popoverSource = source.slice(
+    popoverIndex,
+    source.indexOf(">", popoverIndex)
+  );
+  assert.match(popoverSource, /trigger="click"/);
+});

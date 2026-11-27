@@ -669,7 +669,7 @@ export const DownloadList = memo(function DownloadList({
     return (
       <Popover
         content={content}
-        trigger="hover"
+        trigger="click"
         placement="topLeft"
         onOpenChange={(open) => {
           handleSegmentPopoverOpen(open, record);
@@ -763,6 +763,13 @@ export const DownloadList = memo(function DownloadList({
           <Progress
             percent={Math.round(calculatePercentage(record) * 10) / 10}
             size="small"
+            styles={{
+              indicator: {
+                width: 42,
+                textAlign: "right",
+                fontVariantNumeric: "tabular-nums",
+              },
+            }}
             status={
               record.status === "Downloading" ||
               record.status === "Merging" ||
